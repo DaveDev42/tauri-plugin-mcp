@@ -1,0 +1,47 @@
+{
+  "name": "tauri-plugin-mcp-api",
+  "version": "0.1.0",
+  "description": "Frontend API for tauri-plugin-mcp - enables MCP automation for Tauri apps",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --dts --clean",
+    "dev": "tsup src/index.ts --format esm --dts --watch",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.0.0"
+  },
+  "peerDependencies": {
+    "@tauri-apps/api": "^2.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DaveDev42/tauri-plugin-mcp.git"
+  },
+  "keywords": [
+    "tauri",
+    "plugin",
+    "mcp",
+    "automation",
+    "testing"
+  ],
+  "author": "DaveDev42",
+  "license": "MIT"
+}

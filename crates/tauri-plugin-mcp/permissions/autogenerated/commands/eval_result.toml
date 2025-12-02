@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-eval-result"
+description = "Enables the eval_result command without any pre-configured scope."
+commands.allow = ["eval_result"]
+
+[[permission]]
+identifier = "deny-eval-result"
+description = "Denies the eval_result command without any pre-configured scope."
+commands.deny = ["eval_result"]
