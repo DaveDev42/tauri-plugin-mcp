@@ -21,6 +21,7 @@ thiserror = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 interprocess = { version = "2", features = ["tokio"] }
+toml = "0.8"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

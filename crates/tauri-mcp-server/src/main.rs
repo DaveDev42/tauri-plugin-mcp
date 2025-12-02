@@ -3,6 +3,26 @@
 //! This binary implements the MCP (Model Context Protocol) server that
 //! communicates with Claude Code via stdio and forwards commands to
 //! the Tauri app's debug server via IPC.
+//!
+//! ## Configuration
+//!
+//! The server auto-detects the Tauri app location and binary name.
+//! It searches for `src-tauri/Cargo.toml` in the current directory
+//! or any parent directory.
+//!
+//! ## Usage in .mcp.json
+//!
+//! ```json
+//! {
+//!   "mcpServers": {
+//!     "tauri-mcp": {
+//!       "command": "cargo",
+//!       "args": ["run", "-p", "tauri-mcp-server"],
+//!       "cwd": "/path/to/tauri-plugin-mcp"
+//!     }
+//!   }
+//! }
+//! ```
 
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -12,7 +32,7 @@ use std::io::{BufRead, Write};
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 use interprocess::local_socket::{
     tokio::Stream,
@@ -32,6 +52,114 @@ enum AppStatus {
     NotRunning,
     Starting,
     Running,
+}
+
+/// Tauri app configuration (auto-detected)
+#[derive(Debug, Clone)]
+struct TauriAppConfig {
+    /// Directory containing src-tauri (e.g., apps/desktop or project root)
+    app_dir: PathBuf,
+    /// Binary name from Cargo.toml [[bin]] section
+    binary_name: String,
+    /// Package name from Cargo.toml [package] section
+    package_name: String,
+}
+
+impl TauriAppConfig {
+    /// Auto-detect Tauri app configuration from a starting directory
+    fn detect(start_dir: &PathBuf) -> Result<Self, String> {
+        // Search for src-tauri/Cargo.toml
+        let tauri_dir = Self::find_tauri_dir(start_dir)?;
+        let cargo_toml_path = tauri_dir.join("Cargo.toml");
+
+        info!("Found Tauri app at: {}", tauri_dir.display());
+
+        // Parse Cargo.toml to get binary and package names
+        let cargo_content = std::fs::read_to_string(&cargo_toml_path)
+            .map_err(|e| format!("Failed to read {}: {}", cargo_toml_path.display(), e))?;
+
+        let cargo_toml: toml::Value = cargo_content.parse()
+            .map_err(|e| format!("Failed to parse Cargo.toml: {}", e))?;
+
+        // Get package name
+        let package_name = cargo_toml
+            .get("package")
+            .and_then(|p| p.get("name"))
+            .and_then(|n| n.as_str())
+            .ok_or("Missing [package].name in Cargo.toml")?
+            .to_string();
+
+        // Get binary name from [[bin]] section, fallback to package name
+        let binary_name = cargo_toml
+            .get("bin")
+            .and_then(|b| b.as_array())
+            .and_then(|bins| bins.first())
+            .and_then(|bin| bin.get("name"))
+            .and_then(|n| n.as_str())
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| package_name.clone());
+
+        // app_dir is the parent of src-tauri
+        let app_dir = tauri_dir.parent()
+            .ok_or("src-tauri has no parent directory")?
+            .to_path_buf();
+
+        info!("Detected app: binary='{}', package='{}'", binary_name, package_name);
+
+        Ok(Self {
+            app_dir,
+            binary_name,
+            package_name,
+        })
+    }
+
+    /// Find the src-tauri directory by searching up from start_dir
+    fn find_tauri_dir(start_dir: &PathBuf) -> Result<PathBuf, String> {
+        let mut current = start_dir.clone();
+
+        loop {
+            // Check if src-tauri exists in current directory
+            let tauri_dir = current.join("src-tauri");
+            if tauri_dir.join("Cargo.toml").exists() {
+                return Ok(tauri_dir);
+            }
+
+            // Check subdirectories (for monorepo structures like apps/*)
+            if let Ok(entries) = std::fs::read_dir(&current) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.is_dir() {
+                        let tauri_dir = path.join("src-tauri");
+                        if tauri_dir.join("Cargo.toml").exists() {
+                            return Ok(tauri_dir);
+                        }
+
+                        // Check one more level (e.g., apps/desktop/src-tauri)
+                        if let Ok(sub_entries) = std::fs::read_dir(&path) {
+                            for sub_entry in sub_entries.flatten() {
+                                let sub_path = sub_entry.path();
+                                if sub_path.is_dir() {
+                                    let tauri_dir = sub_path.join("src-tauri");
+                                    if tauri_dir.join("Cargo.toml").exists() {
+                                        return Ok(tauri_dir);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Move to parent directory
+            if let Some(parent) = current.parent() {
+                current = parent.to_path_buf();
+            } else {
+                break;
+            }
+        }
+
+        Err("Could not find src-tauri/Cargo.toml in current directory or any parent".to_string())
+    }
 }
 
 
@@ -260,7 +388,10 @@ fn get_tools() -> Vec<McpTool> {
 
 /// MCP Server state
 struct McpServer {
+    /// Project root directory (where socket file is created)
     project_root: PathBuf,
+    /// Tauri app configuration (auto-detected)
+    app_config: Option<TauriAppConfig>,
     app_process: Option<Child>,
     app_status: AppStatus,
     vite_port: u16,
@@ -275,8 +406,19 @@ impl McpServer {
         let hash = hasher.finish();
         let vite_port = 10000 + (hash % 50000) as u16;
 
+        // Auto-detect Tauri app configuration
+        let app_config = match TauriAppConfig::detect(&project_root) {
+            Ok(config) => Some(config),
+            Err(e) => {
+                warn!("Failed to auto-detect Tauri app: {}", e);
+                warn!("launch_app will not work. Make sure you're in a Tauri project directory.");
+                None
+            }
+        };
+
         Self {
             project_root,
+            app_config,
             app_process: None,
             app_status: AppStatus::NotRunning,
             vite_port,
@@ -325,6 +467,11 @@ impl McpServer {
 
     /// Launch the Tauri app
     async fn launch_app(&mut self, wait_for_ready: bool, timeout_secs: u64) -> Result<String, String> {
+        // Check if app config is available
+        if self.app_config.is_none() {
+            return Err("Tauri app not detected. Make sure you're in a Tauri project directory.".to_string());
+        }
+
         // Check if already running
         if self.get_app_status() == AppStatus::Running {
             return Ok("App is already running".to_string());
@@ -334,10 +481,11 @@ impl McpServer {
         let socket_path = self.project_root.join(SOCKET_FILE_NAME);
         let _ = std::fs::remove_file(&socket_path);
 
-        // Start the app
-        let desktop_dir = self.project_root.join("apps/desktop");
-        info!("Launching app in: {}", desktop_dir.display());
+        // Get app config (safe to unwrap after check above)
+        let app_config = self.app_config.as_ref().unwrap();
 
+        // Start the app
+        info!("Launching app in: {}", app_config.app_dir.display());
         info!("Using VITE_PORT: {}", self.vite_port);
 
         // Override devUrl via --config to match VITE_PORT
@@ -348,7 +496,7 @@ impl McpServer {
 
         let process = Command::new("pnpm")
             .args(["tauri", "dev", "--config", &config_override])
-            .current_dir(&desktop_dir)
+            .current_dir(&app_config.app_dir)
             .env("TAURI_MCP_PROJECT_ROOT", &self.project_root)
             .env("VITE_PORT", self.vite_port.to_string())
             .stdout(Stdio::null())
@@ -418,15 +566,18 @@ impl McpServer {
 
         // Also kill any related processes (handles orphans and child processes)
         #[cfg(unix)]
-        {
-            // spawn() is non-blocking, unlike status()
+        if let Some(ref app_config) = self.app_config {
+            // Kill by binary name (dynamically detected)
             let _ = Command::new("pkill")
-                .args(["-9", "nowtalk-desktop"])
+                .args(["-9", &app_config.binary_name])
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
                 .spawn();
+
+            // Kill by tauri dev command in the app directory
+            let app_dir_str = app_config.app_dir.to_string_lossy();
             let _ = Command::new("pkill")
-                .args(["-9", "-f", "pnpm tauri dev"])
+                .args(["-9", "-f", &format!("tauri dev.*{}", app_dir_str)])
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
                 .spawn();
@@ -698,12 +849,13 @@ async fn main() {
         .with_writer(std::io::stderr)
         .init();
 
-    // Get project root from environment or current directory
+    // Get project root: prefer TAURI_MCP_PROJECT_ROOT, fallback to cwd
     let project_root = std::env::var("TAURI_MCP_PROJECT_ROOT")
         .map(PathBuf::from)
         .unwrap_or_else(|_| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
 
-    info!("Starting tauri-mcp-server for project: {}", project_root.display());
+    info!("Starting tauri-mcp-server");
+    info!("Project root: {}", project_root.display());
 
     let mut server = McpServer::new(project_root);
 
