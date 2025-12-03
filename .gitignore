@@ -4,7 +4,6 @@ target/
 # Node
 node_modules/
 dist/
-!packages/tauri-plugin-mcp-api/dist/
 *.tsbuildinfo
 
 # IDE

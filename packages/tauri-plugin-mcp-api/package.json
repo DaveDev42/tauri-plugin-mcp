@@ -16,18 +16,17 @@
     "dist"
   ],
   "scripts": {
-    "prepare": "tsup src/index.ts --format esm --dts --clean",
-    "build": "tsup src/index.ts --format esm --dts --clean",
-    "dev": "tsup src/index.ts --format esm --dts --watch",
+    "prepare": "tsc",
+    "build": "tsc",
+    "dev": "tsc --watch",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@tauri-apps/api": "^2.0.0"
+    "@tauri-apps/api": "^2.0.0",
+    "typescript": "^5.0.0"
   },
   "devDependencies": {
-    "@types/node": "^20.0.0",
-    "tsup": "^8.0.0",
-    "typescript": "^5.0.0"
+    "@types/node": "^20.0.0"
   },
   "peerDependencies": {
     "@tauri-apps/api": "^2.0.0"
