@@ -124,6 +124,10 @@ export class TauriManager {
   }
 
   private getSocketPath(): string {
+    // Socket is created in src-tauri directory by tauri-plugin-mcp
+    if (this.appConfig) {
+      return path.join(this.appConfig.appDir, 'src-tauri', SOCKET_FILE_NAME);
+    }
     return path.join(this.projectRoot, SOCKET_FILE_NAME);
   }
 

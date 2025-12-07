@@ -5,6 +5,10 @@ import { createHash } from 'crypto';
 
 const SOCKET_FILE_NAME = '.tauri-mcp.sock';
 
+interface AppConfig {
+  appDir: string;
+}
+
 export interface JsonRpcRequest {
   jsonrpc: '2.0';
   id: string | number;
@@ -25,9 +29,54 @@ export interface JsonRpcResponse {
 
 export class SocketManager {
   private projectRoot: string;
+  private appConfig: AppConfig | null = null;
 
   constructor(projectRoot?: string) {
     this.projectRoot = projectRoot ?? process.env.TAURI_PROJECT_ROOT ?? process.cwd();
+    this.appConfig = this.detectTauriApp();
+  }
+
+  private detectTauriApp(): AppConfig | null {
+    // Search for src-tauri/Cargo.toml at various depths
+    const searchPaths = [
+      path.join(this.projectRoot, 'src-tauri', 'Cargo.toml'),
+      path.join(this.projectRoot, '..', 'src-tauri', 'Cargo.toml'),
+      ...this.findCargoTomlRecursive(this.projectRoot, 3),
+    ];
+
+    for (const cargoPath of searchPaths) {
+      if (fs.existsSync(cargoPath)) {
+        const srcTauriDir = path.dirname(cargoPath);
+        const appDir = path.dirname(srcTauriDir);
+        return { appDir };
+      }
+    }
+    return null;
+  }
+
+  private findCargoTomlRecursive(dir: string, depth: number): string[] {
+    if (depth <= 0) return [];
+
+    const results: string[] = [];
+    try {
+      const entries = fs.readdirSync(dir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.isDirectory() && !entry.name.startsWith('.') && entry.name !== 'node_modules' && entry.name !== 'target') {
+          const subDir = path.join(dir, entry.name);
+          if (entry.name === 'src-tauri') {
+            const cargoPath = path.join(subDir, 'Cargo.toml');
+            if (fs.existsSync(cargoPath)) {
+              results.push(cargoPath);
+            }
+          } else {
+            results.push(...this.findCargoTomlRecursive(subDir, depth - 1));
+          }
+        }
+      }
+    } catch (e) {
+      // Permission denied or other errors
+    }
+    return results;
   }
 
   private getSocketPath(): string {
@@ -35,6 +84,10 @@ export class SocketManager {
       // Windows named pipe
       const hash = createHash('sha256').update(this.projectRoot).digest('hex').substring(0, 16);
       return `\\\\.\\pipe\\tauri-mcp-${hash}`;
+    }
+    // Socket is created in src-tauri directory by tauri-plugin-mcp
+    if (this.appConfig) {
+      return path.join(this.appConfig.appDir, 'src-tauri', SOCKET_FILE_NAME);
     }
     return path.join(this.projectRoot, SOCKET_FILE_NAME);
   }
@@ -64,7 +117,8 @@ export class SocketManager {
           params,
         };
 
-        client.write(JSON.stringify(request));
+        // Rust server uses read_line which requires newline delimiter
+        client.write(JSON.stringify(request) + '\n');
       });
 
       let data = '';
