@@ -85,10 +85,7 @@ export class SocketManager {
       const hash = createHash('sha256').update(this.projectRoot).digest('hex').substring(0, 16);
       return `\\\\.\\pipe\\tauri-mcp-${hash}`;
     }
-    // Socket is created in src-tauri directory by tauri-plugin-mcp
-    if (this.appConfig) {
-      return path.join(this.appConfig.appDir, 'src-tauri', SOCKET_FILE_NAME);
-    }
+    // Socket is created in project root by tauri-plugin-mcp (Rust uses current_dir())
     return path.join(this.projectRoot, SOCKET_FILE_NAME);
   }
 
