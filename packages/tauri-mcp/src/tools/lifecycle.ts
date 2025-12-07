@@ -2,82 +2,82 @@ import { z } from 'zod';
 import { TauriManager } from '../managers/tauri.js';
 import { SocketManager } from '../managers/socket.js';
 
-// Tool schemas
+// Tool schemas (descriptions kept minimal for context efficiency)
 export const toolSchemas = {
   app_status: {
     name: 'app_status',
-    description: 'Check if the Tauri app is running',
+    description: 'Check app status',
     inputSchema: z.object({}),
   },
   launch_app: {
     name: 'launch_app',
-    description: 'Launch the Tauri desktop app (runs pnpm tauri dev)',
+    description: 'Launch Tauri app',
     inputSchema: z.object({
-      wait_for_ready: z.boolean().optional().describe('Wait for app to be ready before returning (default: true)'),
-      timeout_secs: z.number().optional().describe('Timeout in seconds to wait for app to be ready (default: 60)'),
+      wait_for_ready: z.boolean().optional().describe('Wait for ready'),
+      timeout_secs: z.number().optional().describe('Timeout seconds'),
     }),
   },
   stop_app: {
     name: 'stop_app',
-    description: 'Stop the running Tauri app',
+    description: 'Stop app',
     inputSchema: z.object({}),
   },
   snapshot: {
     name: 'snapshot',
-    description: 'Get accessibility tree snapshot of the current page. Returns a tree with ref numbers that can be used with click/fill tools.',
+    description: 'Get accessibility tree (returns ref numbers for click/fill)',
     inputSchema: z.object({}),
   },
   click: {
     name: 'click',
-    description: "Click an element. Use 'ref' (from snapshot) or 'selector' (CSS). Ref is preferred.",
+    description: 'Click element by ref or selector',
     inputSchema: z.object({
-      ref: z.number().optional().describe('Element ref number from snapshot (preferred)'),
-      selector: z.string().optional().describe('CSS selector of the element to click (fallback)'),
+      ref: z.number().optional().describe('Ref from snapshot'),
+      selector: z.string().optional().describe('CSS selector'),
     }),
   },
   fill: {
     name: 'fill',
-    description: "Fill an input element with a value. Use 'ref' (from snapshot) or 'selector' (CSS).",
+    description: 'Fill input by ref or selector',
     inputSchema: z.object({
-      ref: z.number().optional().describe('Element ref number from snapshot (preferred)'),
-      selector: z.string().optional().describe('CSS selector of the input element (fallback)'),
-      value: z.string().describe('Value to fill into the input'),
+      ref: z.number().optional().describe('Ref from snapshot'),
+      selector: z.string().optional().describe('CSS selector'),
+      value: z.string().describe('Value'),
     }),
   },
   press_key: {
     name: 'press_key',
-    description: 'Press a keyboard key',
+    description: 'Press key',
     inputSchema: z.object({
-      key: z.string().describe("Key to press (e.g., 'Enter', 'Tab', 'Escape')"),
+      key: z.string().describe('Key name'),
     }),
   },
   evaluate_script: {
     name: 'evaluate_script',
-    description: 'Execute custom JavaScript in the webview',
+    description: 'Run JS in webview',
     inputSchema: z.object({
-      script: z.string().describe('JavaScript code to execute'),
+      script: z.string().describe('JS code'),
     }),
   },
   screenshot: {
     name: 'screenshot',
-    description: 'Take a screenshot of the current page',
+    description: 'Take screenshot',
     inputSchema: z.object({}),
   },
   navigate: {
     name: 'navigate',
-    description: 'Navigate to a URL',
+    description: 'Navigate to URL',
     inputSchema: z.object({
-      url: z.string().describe('URL to navigate to'),
+      url: z.string().describe('URL'),
     }),
   },
   get_console_logs: {
     name: 'get_console_logs',
-    description: 'Get captured console logs from the frontend',
+    description: 'Get console logs',
     inputSchema: z.object({}),
   },
   get_network_logs: {
     name: 'get_network_logs',
-    description: 'Get captured network request logs',
+    description: 'Get network logs',
     inputSchema: z.object({}),
   },
 };
