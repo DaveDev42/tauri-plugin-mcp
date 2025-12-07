@@ -163,8 +163,9 @@ export class SocketManager {
   }
 
   async snapshot(): Promise<string> {
-    const result = await this.sendCommand('snapshot');
-    return result as string;
+    const result = await this.sendCommand('snapshot') as { snapshot: string; title: string; url: string };
+    // Format as readable output
+    return `# ${result.title}\nURL: ${result.url}\n\n${result.snapshot}`;
   }
 
   async click(options: { ref?: number; selector?: string }): Promise<string> {
