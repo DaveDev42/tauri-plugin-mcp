@@ -1,10 +1,26 @@
-[workspace]
-resolver = "2"
-members = ["crates/*"]
-
-[workspace.package]
+[package]
+name = "tauri-plugin-mcp"
 version = "0.1.0"
-authors = ["DaveDev42"]
-license = "MIT OR Apache-2.0"
 edition = "2021"
+license = "MIT OR Apache-2.0"
 repository = "https://github.com/DaveDev42/tauri-plugin-mcp"
+authors = ["DaveDev42"]
+description = "Cross-platform Tauri test automation plugin via MCP"
+keywords = ["tauri", "plugin", "mcp", "automation", "testing"]
+categories = ["development-tools::testing", "gui"]
+links = "tauri-plugin-mcp"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["sync", "time", "rt"] }
+thiserror = "1"
+tracing = "0.1"
+interprocess = { version = "2", features = ["tokio"] }
+async-trait = "0.1"
+uuid = { version = "1", features = ["v4"] }
+base64 = "0.22"
+tauri = { version = "2", default-features = false, features = ["wry"] }
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }
