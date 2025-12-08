@@ -169,18 +169,27 @@ export class SocketManager {
   }
 
   async click(options: { ref?: number; selector?: string }): Promise<string> {
-    const result = await this.sendCommand('click', options);
-    return result as string;
+    const result = await this.sendCommand('click', options) as { success: boolean; error?: string };
+    if (!result.success) {
+      throw new Error(result.error || 'Click failed');
+    }
+    return `Clicked ${options.ref ? `ref=${options.ref}` : options.selector}`;
   }
 
   async fill(options: { ref?: number; selector?: string; value: string }): Promise<string> {
-    const result = await this.sendCommand('fill', options);
-    return result as string;
+    const result = await this.sendCommand('fill', options) as { success: boolean; error?: string };
+    if (!result.success) {
+      throw new Error(result.error || 'Fill failed');
+    }
+    return `Filled ${options.ref ? `ref=${options.ref}` : options.selector} with "${options.value}"`;
   }
 
   async pressKey(key: string): Promise<string> {
-    const result = await this.sendCommand('press_key', { key });
-    return result as string;
+    const result = await this.sendCommand('press_key', { key }) as { success: boolean; error?: string };
+    if (!result.success) {
+      throw new Error(result.error || 'Press key failed');
+    }
+    return `Pressed key: ${key}`;
   }
 
   async evaluateScript(script: string): Promise<unknown> {
@@ -188,14 +197,17 @@ export class SocketManager {
     return result;
   }
 
-  async screenshot(): Promise<string> {
-    const result = await this.sendCommand('screenshot');
-    return result as string;
+  async screenshot(): Promise<{ data: string; width: number; height: number }> {
+    const result = await this.sendCommand('screenshot') as { data: string; width: number; height: number };
+    return result;
   }
 
   async navigate(url: string): Promise<string> {
-    const result = await this.sendCommand('navigate', { url });
-    return result as string;
+    const result = await this.sendCommand('navigate', { url }) as { success: boolean; error?: string };
+    if (!result.success) {
+      throw new Error(result.error || 'Navigate failed');
+    }
+    return `Navigated to ${url}`;
   }
 
   async getConsoleLogs(): Promise<unknown[]> {

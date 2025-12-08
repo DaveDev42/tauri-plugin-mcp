@@ -25,6 +25,7 @@ export class TauriManager {
   private projectRoot: string;
   private appConfig: TauriAppConfig | null = null;
   private vitePort: number;
+  private outputBuffer: string[] = [];
 
   constructor(projectRoot?: string) {
     this.projectRoot = projectRoot ?? process.env.TAURI_PROJECT_ROOT ?? process.cwd();
@@ -173,16 +174,27 @@ export class TauriManager {
 
     this.status = 'starting';
 
+    // Reset output buffer for this launch
+    this.outputBuffer = [];
+
     this.process.stdout?.on('data', (data) => {
-      console.error(`[tauri stdout] ${data.toString().trim()}`);
+      const line = data.toString().trim();
+      console.error(`[tauri stdout] ${line}`);
+      this.outputBuffer.push(`[stdout] ${line}`);
+      // Keep only last 100 lines
+      if (this.outputBuffer.length > 100) this.outputBuffer.shift();
     });
 
     this.process.stderr?.on('data', (data) => {
-      console.error(`[tauri stderr] ${data.toString().trim()}`);
+      const line = data.toString().trim();
+      console.error(`[tauri stderr] ${line}`);
+      this.outputBuffer.push(`[stderr] ${line}`);
+      if (this.outputBuffer.length > 100) this.outputBuffer.shift();
     });
 
     this.process.on('exit', (code) => {
       console.error(`[tauri-mcp] Process exited with code ${code}`);
+      this.outputBuffer.push(`[exit] Process exited with code ${code}`);
       this.process = null;
       this.status = 'not_running';
     });
@@ -202,7 +214,8 @@ export class TauriManager {
     while (Date.now() - startTime < timeoutMs) {
       // Check if process crashed
       if (!this.process) {
-        throw new Error('App process exited unexpectedly');
+        const logs = this.getRecentLogs();
+        throw new Error(`App process exited unexpectedly\n\n${logs}`);
       }
 
       // Check if socket is ready
@@ -215,7 +228,16 @@ export class TauriManager {
       await this.sleep(500);
     }
 
-    throw new Error(`App did not become ready within ${timeoutSecs} seconds`);
+    const logs = this.getRecentLogs();
+    throw new Error(`App did not become ready within ${timeoutSecs} seconds\n\n${logs}`);
+  }
+
+  private getRecentLogs(): string {
+    if (this.outputBuffer.length === 0) {
+      return '(no output captured)';
+    }
+    // Return last 20 lines
+    return this.outputBuffer.slice(-20).join('\n');
   }
 
   async stop(): Promise<{ message: string }> {

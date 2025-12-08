@@ -198,13 +198,12 @@ export function createToolHandlers(tauriManager: TauriManager, socketManager: So
 
     screenshot: async () => {
       const result = await socketManager.screenshot();
-      // Result is base64 encoded image
       return {
         content: [
           {
             type: 'image' as const,
-            data: result,
-            mimeType: 'image/jpeg',
+            data: result.data,
+            mimeType: 'image/png',
           },
         ],
       };
