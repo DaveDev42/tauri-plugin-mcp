@@ -197,9 +197,21 @@ export class SocketManager {
     return result;
   }
 
-  async screenshot(): Promise<{ data: string; width: number; height: number }> {
+  async screenshot(): Promise<{ data: string; mimeType: string; width: number; height: number }> {
     const result = await this.sendCommand('screenshot') as { data: string; width: number; height: number };
-    return result;
+    // data is a Data URL like "data:image/jpeg;base64,..."
+    // Extract the base64 part and mime type
+    const match = result.data.match(/^data:([^;]+);base64,(.+)$/);
+    if (match) {
+      return {
+        data: match[2],
+        mimeType: match[1],
+        width: result.width,
+        height: result.height,
+      };
+    }
+    // Fallback: assume it's already raw base64
+    return { ...result, mimeType: 'image/png' };
   }
 
   async navigate(url: string): Promise<string> {

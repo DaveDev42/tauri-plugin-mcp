@@ -203,7 +203,7 @@ export function createToolHandlers(tauriManager: TauriManager, socketManager: So
           {
             type: 'image' as const,
             data: result.data,
-            mimeType: 'image/png',
+            mimeType: result.mimeType,
           },
         ],
       };
