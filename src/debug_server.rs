@@ -48,12 +48,14 @@ impl DebugServer {
 
     #[cfg(windows)]
     fn get_socket_path(project_root: &Path) -> String {
-        // Windows Named Pipe: use hash of project path for uniqueness
+        // Windows Named Pipe: use hash of project path string for uniqueness
+        // We hash the string bytes directly (not Path::hash) so Node.js can compute the same hash
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
 
+        let path_str = project_root.to_string_lossy();
         let mut hasher = DefaultHasher::new();
-        project_root.hash(&mut hasher);
+        path_str.as_bytes().hash(&mut hasher);
         let hash = hasher.finish();
         format!("@tauri-mcp-{:x}", hash)
     }
