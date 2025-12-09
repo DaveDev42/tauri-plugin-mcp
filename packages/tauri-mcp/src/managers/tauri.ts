@@ -3,138 +3,6 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as net from 'net';
 
-/**
- * SipHash-1-3 Hasher to match Rust's DefaultHasher
- * Implements the Hasher trait interface: write, write_usize, finish
- */
-class SipHasher {
-  private v0: bigint;
-  private v1: bigint;
-  private v2: bigint;
-  private v3: bigint;
-  private tail: number[] = [];
-  private ntail: number = 0;
-  private length: number = 0;
-  private readonly mask64 = BigInt('0xffffffffffffffff');
-
-  constructor() {
-    const k0 = BigInt('0x736f6d6570736575');
-    const k1 = BigInt('0x646f72616e646f6d');
-    this.v0 = k0 ^ BigInt('0x736f6d6570736575');
-    this.v1 = k1 ^ BigInt('0x646f72616e646f6d');
-    this.v2 = k0 ^ BigInt('0x6c7967656e657261');
-    this.v3 = k1 ^ BigInt('0x7465646279746573');
-  }
-
-  private rotl(x: bigint, b: number): bigint {
-    return ((x << BigInt(b)) | (x >> BigInt(64 - b))) & this.mask64;
-  }
-
-  private sipRound(): void {
-    this.v0 = (this.v0 + this.v1) & this.mask64;
-    this.v1 = this.rotl(this.v1, 13);
-    this.v1 ^= this.v0;
-    this.v0 = this.rotl(this.v0, 32);
-    this.v2 = (this.v2 + this.v3) & this.mask64;
-    this.v3 = this.rotl(this.v3, 16);
-    this.v3 ^= this.v2;
-    this.v0 = (this.v0 + this.v3) & this.mask64;
-    this.v3 = this.rotl(this.v3, 21);
-    this.v3 ^= this.v0;
-    this.v2 = (this.v2 + this.v1) & this.mask64;
-    this.v1 = this.rotl(this.v1, 17);
-    this.v1 ^= this.v2;
-    this.v2 = this.rotl(this.v2, 32);
-  }
-
-  write(data: Buffer): void {
-    this.length += data.length;
-    let i = 0;
-
-    // Fill tail buffer first
-    while (this.ntail < 8 && i < data.length) {
-      this.tail[this.ntail++] = data[i++];
-    }
-
-    // If we have a complete block
-    if (this.ntail === 8) {
-      let m = BigInt(0);
-      for (let j = 0; j < 8; j++) {
-        m |= BigInt(this.tail[j]) << BigInt(j * 8);
-      }
-      this.v3 ^= m;
-      this.sipRound();
-      this.v0 ^= m;
-      this.ntail = 0;
-    }
-
-    // Process remaining complete 8-byte blocks
-    while (i + 8 <= data.length) {
-      let m = BigInt(0);
-      for (let j = 0; j < 8; j++) {
-        m |= BigInt(data[i + j]) << BigInt(j * 8);
-      }
-      this.v3 ^= m;
-      this.sipRound();
-      this.v0 ^= m;
-      i += 8;
-    }
-
-    // Store remaining bytes in tail
-    while (i < data.length) {
-      this.tail[this.ntail++] = data[i++];
-    }
-  }
-
-  writeUsize(value: number): void {
-    // Rust's write_usize on 64-bit systems writes 8 bytes (little-endian)
-    const buf = Buffer.alloc(8);
-    buf.writeBigUInt64LE(BigInt(value));
-    this.write(buf);
-  }
-
-  finish(): bigint {
-    // Final block with length encoding
-    let b = BigInt(this.length & 0xff) << BigInt(56);
-    for (let i = 0; i < this.ntail; i++) {
-      b |= BigInt(this.tail[i]) << BigInt(i * 8);
-    }
-
-    this.v3 ^= b;
-    this.sipRound();
-    this.v0 ^= b;
-
-    // Finalization
-    this.v2 ^= BigInt(0xff);
-    this.sipRound();
-    this.sipRound();
-    this.sipRound();
-
-    return (this.v0 ^ this.v1 ^ this.v2 ^ this.v3) & this.mask64;
-  }
-}
-
-/**
- * Hash a byte slice the same way Rust's DefaultHasher does for &[u8].hash()
- * Rust's slice Hash impl: writes length first, then bytes
- */
-function hashBytesLikeRust(data: Buffer): bigint {
-  const hasher = new SipHasher();
-  hasher.writeUsize(data.length);
-  hasher.write(data);
-  return hasher.finish();
-}
-
-/**
- * Hash a path string the same way Rust hashes path_str.as_bytes()
- */
-function hashPathLikeRust(pathStr: string): string {
-  const normalizedPath = path.resolve(pathStr);
-  const pathBuffer = Buffer.from(normalizedPath, 'utf-8');
-  const hash = hashBytesLikeRust(pathBuffer);
-  return hash.toString(16);
-}
-
 export interface TauriAppConfig {
   appDir: string;
   binaryName: string;
@@ -157,6 +25,7 @@ export class TauriManager {
   private appConfig: TauriAppConfig | null = null;
   private vitePort: number;
   private outputBuffer: string[] = [];
+  private detectedPipePath: string | null = null;
 
   constructor(projectRoot?: string) {
     this.projectRoot = projectRoot ?? process.env.TAURI_PROJECT_ROOT ?? process.cwd();
@@ -190,11 +59,15 @@ export class TauriManager {
   }
 
   private generatePort(projectPath: string): number {
+    // Simple hash for port generation
     const normalizedPath = path.resolve(projectPath);
-    const pathBuffer = Buffer.from(normalizedPath, 'utf-8');
-    const hash = hashBytesLikeRust(pathBuffer);
-    const hashValue = Number(hash & BigInt(0xFFFFFFFF));
-    return 10000 + (hashValue % 50000);
+    let hash = 0;
+    for (let i = 0; i < normalizedPath.length; i++) {
+      const char = normalizedPath.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash;
+    }
+    return 10000 + (Math.abs(hash) % 50000);
   }
 
   private detectTauriApp(): TauriAppConfig | null {
@@ -282,17 +155,36 @@ export class TauriManager {
     };
   }
 
-  private getSocketPath(): string {
+  /**
+   * Get the socket path - uses detected path from Rust logs on Windows
+   */
+  getSocketPath(): string {
     if (process.platform === 'win32') {
-      // Windows named pipe - must match Rust plugin's GenericNamespaced format
-      // Rust uses @tauri-mcp-{hash} with DefaultHasher, which maps to \\.\pipe\tauri-mcp-{hash}
-      const hash = hashPathLikeRust(this.projectRoot);
-      const pipePath = `\\\\.\\pipe\\tauri-mcp-${hash}`;
-      console.error(`[tauri-mcp] Windows pipe path: ${pipePath}`);
-      return pipePath;
+      // Use detected pipe path from Rust plugin logs if available
+      if (this.detectedPipePath) {
+        return this.detectedPipePath;
+      }
+      // Fallback: won't work but provides a message
+      console.error('[tauri-mcp] Warning: pipe path not yet detected from app logs');
+      return '\\\\.\\pipe\\tauri-mcp-unknown';
     }
     // Unix socket file in project root
     return path.join(this.projectRoot, SOCKET_FILE_NAME);
+  }
+
+  /**
+   * Parse pipe path from Rust plugin output
+   * Looks for: [tauri-plugin-mcp]   pipe_path: \\.\pipe\tauri-mcp-XXXXX
+   */
+  private parsePipePathFromLogs(): string | null {
+    for (const line of this.outputBuffer) {
+      // Match the pipe_path line from Rust debug output
+      const match = line.match(/\[tauri-plugin-mcp\]\s+pipe_path:\s*(\\\\.\\pipe\\[^\s]+)/);
+      if (match) {
+        return match[1];
+      }
+    }
+    return null;
   }
 
   private isSocketReady(): boolean {
@@ -306,11 +198,19 @@ export class TauriManager {
   }
 
   private async isSocketReadyAsync(): Promise<boolean> {
-    const pipePath = this.getSocketPath();
+    // First try to parse pipe path from logs
+    const pipePath = this.parsePipePathFromLogs();
+    if (!pipePath) {
+      return false;
+    }
+
+    // Store detected path for later use
+    this.detectedPipePath = pipePath;
 
     return new Promise((resolve) => {
       const client = net.createConnection(pipePath, () => {
         client.destroy();
+        console.error(`[tauri-mcp] Successfully connected to pipe: ${pipePath}`);
         resolve(true);
       });
       client.on('error', () => {
@@ -335,6 +235,9 @@ export class TauriManager {
     if (this.process) {
       throw new Error('App is already running. Stop it first.');
     }
+
+    // Reset detected pipe path
+    this.detectedPipePath = null;
 
     // Clean up stale socket file (Unix only)
     if (process.platform !== 'win32') {
@@ -458,6 +361,7 @@ export class TauriManager {
       proc.on('exit', () => {
         this.process = null;
         this.status = 'not_running';
+        this.detectedPipePath = null;
         resolve({ message: 'App stopped' });
       });
 
@@ -487,6 +391,7 @@ export class TauriManager {
           this.cleanupOrphanProcesses();
           this.process = null;
           this.status = 'not_running';
+          this.detectedPipePath = null;
           resolve({ message: 'App force stopped' });
         }
       }, 5000);
@@ -522,7 +427,7 @@ export class TauriManager {
 
   getStatus(): AppStatus {
     if (this.process) {
-      if (this.isSocketReady()) {
+      if (this.detectedPipePath || this.isSocketReady()) {
         this.status = 'running';
       } else {
         this.status = 'starting';

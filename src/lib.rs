@@ -283,10 +283,25 @@ async fn eval_result(
 }
 
 /// Get the project root directory
+/// Returns the Tauri app project root (parent of src-tauri if running from src-tauri)
 fn get_project_root() -> std::path::PathBuf {
-    std::env::var("TAURI_MCP_PROJECT_ROOT")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|_| std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")))
+    // First check environment variable
+    if let Ok(root) = std::env::var("TAURI_MCP_PROJECT_ROOT") {
+        return std::path::PathBuf::from(root);
+    }
+
+    // Get current directory
+    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+
+    // If we're in src-tauri, go up one level to get the project root
+    // This ensures consistency with the Node.js MCP server which uses the project root
+    if cwd.ends_with("src-tauri") {
+        if let Some(parent) = cwd.parent() {
+            return parent.to_path_buf();
+        }
+    }
+
+    cwd
 }
 
 /// Initialize the MCP plugin
@@ -295,10 +310,12 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
         .invoke_handler(tauri::generate_handler![register_bridge, eval_result])
         .setup(|app, _api| {
             let project_root = get_project_root();
+            eprintln!("[tauri-plugin-mcp] Setting up for project: {}", project_root.display());
             info!("Setting up tauri-plugin-mcp for project: {}", project_root.display());
 
             // Create debug server
             let debug_server = Arc::new(DebugServer::new(&project_root));
+            eprintln!("[tauri-plugin-mcp] Debug server created, socket: {}", debug_server.socket_path());
 
             // Create plugin state
             let state = Arc::new(McpState::new(Arc::clone(&debug_server)));
@@ -311,13 +328,16 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             let server = Arc::clone(&debug_server);
             tauri::async_runtime::spawn(async move {
                 server.set_handler(handler).await;
+                eprintln!("[tauri-plugin-mcp] Handler set on debug server");
             });
 
             // Start the debug server
             let server = Arc::clone(&debug_server);
             tauri::async_runtime::spawn(async move {
-                if let Err(e) = server.start().await {
-                    error!("Failed to start debug server: {}", e);
+                eprintln!("[tauri-plugin-mcp] Starting debug server...");
+                match server.start().await {
+                    Ok(()) => eprintln!("[tauri-plugin-mcp] Debug server started successfully"),
+                    Err(e) => eprintln!("[tauri-plugin-mcp] Failed to start debug server: {}", e),
                 }
             });
 

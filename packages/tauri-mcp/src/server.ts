@@ -31,6 +31,12 @@ export class McpServer {
 
     this.tauriManager = new TauriManager(projectRoot);
     this.socketManager = new SocketManager(projectRoot);
+
+    // On Windows, connect SocketManager to TauriManager's detected pipe path
+    if (process.platform === 'win32') {
+      this.socketManager.setSocketPathProvider(() => this.tauriManager.getSocketPath());
+    }
+
     this.toolHandlers = createToolHandlers(this.tauriManager, this.socketManager);
 
     this.setupHandlers();
