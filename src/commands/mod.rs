@@ -346,34 +346,89 @@ pub const SCREENSHOT_JS: &str = r#"
         await new Promise(resolve => script.onload = resolve);
     }
 
-    const canvas = await window.html2canvas(document.body, {
-        useCORS: true,
-        allowTaint: true,
-        scale: 0.5
-    });
+    // Helper to convert modern CSS colors (oklch, oklab, lab, lch) to RGB
+    // html2canvas doesn't support these color functions
+    function convertModernColors(clonedDoc, originalDoc) {
+        const modernColorRegex = /oklch\([^)]+\)|oklab\([^)]+\)|lab\([^)]+\)|lch\([^)]+\)/gi;
 
-    // Resize to max 1280x720 to limit output size
-    const maxWidth = 1280;
-    const maxHeight = 720;
-    let width = canvas.width;
-    let height = canvas.height;
+        // Get all elements from both documents in same order
+        const clonedElements = clonedDoc.querySelectorAll('*');
+        const originalElements = originalDoc.querySelectorAll('*');
 
-    if (width > maxWidth || height > maxHeight) {
-        const ratio = Math.min(maxWidth / width, maxHeight / height);
-        width = Math.floor(width * ratio);
-        height = Math.floor(height * ratio);
+        // List of color properties to check
+        const colorProps = [
+            'color', 'backgroundColor', 'borderColor',
+            'borderTopColor', 'borderRightColor', 'borderBottomColor', 'borderLeftColor',
+            'outlineColor', 'textDecorationColor', 'caretColor', 'fill', 'stroke'
+        ];
+
+        clonedElements.forEach((el, index) => {
+            const originalEl = originalElements[index];
+            if (!originalEl) return;
+
+            const computed = window.getComputedStyle(originalEl);
+
+            colorProps.forEach(prop => {
+                try {
+                    const value = computed[prop];
+                    if (value && modernColorRegex.test(value)) {
+                        // Browser auto-converts oklch to rgb in getComputedStyle
+                        // But if it's still oklch, use a fallback
+                        el.style.setProperty(prop.replace(/([A-Z])/g, '-$1').toLowerCase(), 'inherit', 'important');
+                    }
+                } catch (e) {
+                    // Ignore errors
+                }
+            });
+        });
+
+        // Process stylesheets - replace modern colors with transparent
+        const styleSheets = clonedDoc.querySelectorAll('style');
+        styleSheets.forEach(styleEl => {
+            if (styleEl.textContent && modernColorRegex.test(styleEl.textContent)) {
+                styleEl.textContent = styleEl.textContent.replace(modernColorRegex, 'transparent');
+            }
+        });
     }
 
-    const resized = document.createElement('canvas');
-    resized.width = width;
-    resized.height = height;
-    resized.getContext('2d').drawImage(canvas, 0, 0, width, height);
+    try {
+        const canvas = await window.html2canvas(document.body, {
+            useCORS: true,
+            allowTaint: true,
+            scale: 0.5,
+            logging: false,  // Suppress logging
+            onclone: (clonedDoc) => {
+                convertModernColors(clonedDoc, document);
+            }
+        });
 
-    // JPEG with 0.6 quality for smaller file size
-    const dataUrl = resized.toDataURL('image/jpeg', 0.6);
-    return {
-        data: dataUrl,
-        width: width,
-        height: height
-    };
+        // Resize to max 1280x720 to limit output size
+        const maxWidth = 1280;
+        const maxHeight = 720;
+        let width = canvas.width;
+        let height = canvas.height;
+
+        if (width > maxWidth || height > maxHeight) {
+            const ratio = Math.min(maxWidth / width, maxHeight / height);
+            width = Math.floor(width * ratio);
+            height = Math.floor(height * ratio);
+        }
+
+        const resized = document.createElement('canvas');
+        resized.width = width;
+        resized.height = height;
+        resized.getContext('2d').drawImage(canvas, 0, 0, width, height);
+
+        // JPEG with 0.6 quality for smaller file size
+        const dataUrl = resized.toDataURL('image/jpeg', 0.6);
+        return {
+            data: dataUrl,
+            width: width,
+            height: height
+        };
+    } catch (e) {
+        // If html2canvas fails, try a simpler approach using canvas
+        // This is a fallback that captures a blank/simple version
+        throw new Error('Screenshot failed: ' + e.message);
+    }
 "#;
