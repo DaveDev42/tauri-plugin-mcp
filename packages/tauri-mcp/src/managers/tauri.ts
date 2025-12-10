@@ -374,7 +374,10 @@ export class TauriManager {
           proc.kill('SIGTERM');
         }
       } else {
-        // On Windows, use taskkill to kill the process tree
+        // On Windows, kill the app binary first, then the process tree
+        // This ensures the actual Tauri app is terminated even if process tree fails
+        this.cleanupOrphanProcesses();
+
         if (proc.pid) {
           spawn('taskkill', ['/PID', proc.pid.toString(), '/T', '/F'], {
             stdio: 'ignore',
