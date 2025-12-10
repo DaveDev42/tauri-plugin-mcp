@@ -346,60 +346,37 @@ pub const SCREENSHOT_JS: &str = r#"
         await new Promise(resolve => script.onload = resolve);
     }
 
-    // Helper to convert modern CSS colors (oklch, oklab, lab, lch) to RGB
-    // html2canvas doesn't support these color functions
-    function convertModernColors(clonedDoc, originalDoc) {
-        const modernColorRegex = /oklch\([^)]+\)|oklab\([^)]+\)|lab\([^)]+\)|lch\([^)]+\)/gi;
+    // html2canvas doesn't support modern CSS color functions (oklch, oklab, lch, lab)
+    // Workaround: disable stylesheets with these colors and apply computed RGB inline
 
-        // Get all elements from both documents in same order
-        const clonedElements = clonedDoc.querySelectorAll('*');
-        const originalElements = originalDoc.querySelectorAll('*');
+    // Disable stylesheets containing unsupported color functions
+    const disabledStyles = [];
+    document.querySelectorAll('style').forEach((s) => {
+        if (s.textContent && /(oklch|oklab|lch|lab)\(/i.test(s.textContent)) {
+            disabledStyles.push({ el: s, content: s.textContent });
+            s.textContent = '/* temporarily disabled for screenshot */';
+        }
+    });
 
-        // List of color properties to check
-        const colorProps = [
-            'color', 'backgroundColor', 'borderColor',
-            'borderTopColor', 'borderRightColor', 'borderBottomColor', 'borderLeftColor',
-            'outlineColor', 'textDecorationColor', 'caretColor', 'fill', 'stroke'
-        ];
-
-        clonedElements.forEach((el, index) => {
-            const originalEl = originalElements[index];
-            if (!originalEl) return;
-
-            const computed = window.getComputedStyle(originalEl);
-
-            colorProps.forEach(prop => {
-                try {
-                    const value = computed[prop];
-                    if (value && modernColorRegex.test(value)) {
-                        // Browser auto-converts oklch to rgb in getComputedStyle
-                        // But if it's still oklch, use a fallback
-                        el.style.setProperty(prop.replace(/([A-Z])/g, '-$1').toLowerCase(), 'inherit', 'important');
-                    }
-                } catch (e) {
-                    // Ignore errors
-                }
-            });
-        });
-
-        // Process stylesheets - replace modern colors with transparent
-        const styleSheets = clonedDoc.querySelectorAll('style');
-        styleSheets.forEach(styleEl => {
-            if (styleEl.textContent && modernColorRegex.test(styleEl.textContent)) {
-                styleEl.textContent = styleEl.textContent.replace(modernColorRegex, 'transparent');
-            }
-        });
-    }
+    // Apply computed styles inline to preserve colors
+    const elements = document.body.querySelectorAll('*');
+    const inlineBackups = [];
+    elements.forEach((el) => {
+        const computed = window.getComputedStyle(el);
+        const oldStyle = el.getAttribute('style') || '';
+        inlineBackups.push({ el, oldStyle });
+        // Apply key color properties as inline styles
+        el.style.color = computed.color;
+        el.style.backgroundColor = computed.backgroundColor;
+        el.style.borderColor = computed.borderColor;
+    });
 
     try {
         const canvas = await window.html2canvas(document.body, {
             useCORS: true,
             allowTaint: true,
             scale: 0.5,
-            logging: false,  // Suppress logging
-            onclone: (clonedDoc) => {
-                convertModernColors(clonedDoc, document);
-            }
+            logging: false
         });
 
         // Resize to max 1280x720 to limit output size
@@ -421,14 +398,21 @@ pub const SCREENSHOT_JS: &str = r#"
 
         // JPEG with 0.6 quality for smaller file size
         const dataUrl = resized.toDataURL('image/jpeg', 0.6);
+
+        // Restore original stylesheets
+        disabledStyles.forEach(d => { d.el.textContent = d.content; });
+        // Restore original inline styles
+        inlineBackups.forEach(b => { b.el.setAttribute('style', b.oldStyle); });
+
         return {
             data: dataUrl,
             width: width,
             height: height
         };
     } catch (e) {
-        // If html2canvas fails, try a simpler approach using canvas
-        // This is a fallback that captures a blank/simple version
+        // Restore on error
+        disabledStyles.forEach(d => { d.el.textContent = d.content; });
+        inlineBackups.forEach(b => { b.el.setAttribute('style', b.oldStyle); });
         throw new Error('Screenshot failed: ' + e.message);
     }
 "#;
