@@ -164,8 +164,12 @@ export class TauriManager {
       if (this.detectedPipePath) {
         return this.detectedPipePath;
       }
-      // Fallback: won't work but provides a message
-      console.error('[tauri-mcp] Warning: pipe path not yet detected from app logs');
+      // Fallback: calculate pipe path using same algorithm as Rust
+      const pipePath = this.calculateWindowsPipePath();
+      if (pipePath) {
+        return pipePath;
+      }
+      console.error('[tauri-mcp] Warning: pipe path not yet detected');
       return '\\\\.\\pipe\\tauri-mcp-unknown';
     }
     // Unix socket file in project root
@@ -173,13 +177,30 @@ export class TauriManager {
   }
 
   /**
+   * Find Windows named pipe matching tauri-mcp-* pattern
+   * Since calculating the exact hash is complex, we enumerate existing pipes
+   */
+  private calculateWindowsPipePath(): string | null {
+    try {
+      // List all pipes using fs.readdirSync
+      const pipes = fs.readdirSync('//./pipe/').filter((f: string) => f.startsWith('tauri-mcp-'));
+      if (pipes.length > 0) {
+        return `//./pipe/${pipes[0]}`;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * Parse pipe path from Rust plugin output
-   * Looks for: [tauri-plugin-mcp]   pipe_path: \\.\pipe\tauri-mcp-XXXXX
+   * Looks for: [stderr] [tauri-plugin-mcp]   full_path: \\.\pipe\tauri-mcp-XXXXX
    */
   private parsePipePathFromLogs(): string | null {
     for (const line of this.outputBuffer) {
-      // Match the pipe_path line from Rust debug output
-      const match = line.match(/\[tauri-plugin-mcp\]\s+pipe_path:\s*(\\\\.\\pipe\\[^\s]+)/);
+      // Match the full_path line from Rust debug output (with [stderr] prefix)
+      const match = line.match(/\[tauri-plugin-mcp\]\s+full_path:\s*(\\\\\.\\pipe\\[^\s]+)/);
       if (match) {
         return match[1];
       }
@@ -199,7 +220,13 @@ export class TauriManager {
 
   private async isSocketReadyAsync(): Promise<boolean> {
     // First try to parse pipe path from logs
-    const pipePath = this.parsePipePathFromLogs();
+    let pipePath = this.parsePipePathFromLogs();
+
+    // If not found in logs, calculate the path
+    if (!pipePath) {
+      pipePath = this.calculateWindowsPipePath();
+    }
+
     if (!pipePath) {
       return false;
     }
@@ -210,7 +237,6 @@ export class TauriManager {
     return new Promise((resolve) => {
       const client = net.createConnection(pipePath, () => {
         client.destroy();
-        console.error(`[tauri-mcp] Successfully connected to pipe: ${pipePath}`);
         resolve(true);
       });
       client.on('error', () => {
