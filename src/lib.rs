@@ -252,13 +252,29 @@ impl<R: Runtime + 'static> CommandHandler for IpcCommandHandler<R> {
             }
 
             "get_console_logs" => {
-                // TODO: implement console log capture
-                JsonRpcResponse::success(id, serde_json::json!({"logs": []}))
+                let clear = request
+                    .params
+                    .get("clear")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                let js = commands::get_console_logs_js(clear);
+                match self.eval_with_result(&js).await {
+                    Ok(result) => JsonRpcResponse::success(id, result),
+                    Err(e) => JsonRpcResponse::error(id, EVAL_ERROR, e),
+                }
             }
 
             "get_network_logs" => {
-                // TODO: implement network log capture
-                JsonRpcResponse::success(id, serde_json::json!({"logs": []}))
+                let clear = request
+                    .params
+                    .get("clear")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                let js = commands::get_network_logs_js(clear);
+                match self.eval_with_result(&js).await {
+                    Ok(result) => JsonRpcResponse::success(id, result),
+                    Err(e) => JsonRpcResponse::error(id, EVAL_ERROR, e),
+                }
             }
 
             _ => JsonRpcResponse::error(

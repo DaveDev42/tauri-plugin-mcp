@@ -73,13 +73,25 @@ export const toolSchemas = {
   },
   get_console_logs: {
     name: 'get_console_logs',
-    description: 'Get console logs',
-    inputSchema: z.object({}),
+    description: 'Get captured browser console logs (console.log, warn, error, etc.)',
+    inputSchema: z.object({
+      clear: z.boolean().optional().describe('Clear logs after reading'),
+    }),
   },
   get_network_logs: {
     name: 'get_network_logs',
-    description: 'Get network logs',
-    inputSchema: z.object({}),
+    description: 'Get captured browser network request logs',
+    inputSchema: z.object({
+      clear: z.boolean().optional().describe('Clear logs after reading'),
+    }),
+  },
+  get_app_logs: {
+    name: 'get_app_logs',
+    description: 'Get Tauri app stdout/stderr logs (Rust logs, build output, etc.)',
+    inputSchema: z.object({
+      limit: z.number().optional().describe('Max lines to return'),
+      clear: z.boolean().optional().describe('Clear logs after reading'),
+    }),
   },
 };
 
@@ -222,8 +234,8 @@ export function createToolHandlers(tauriManager: TauriManager, socketManager: So
       };
     },
 
-    get_console_logs: async () => {
-      const result = await socketManager.getConsoleLogs();
+    get_console_logs: async (args: { clear?: boolean }) => {
+      const result = await socketManager.getConsoleLogs(args.clear);
       return {
         content: [
           {
@@ -234,13 +246,25 @@ export function createToolHandlers(tauriManager: TauriManager, socketManager: So
       };
     },
 
-    get_network_logs: async () => {
-      const result = await socketManager.getNetworkLogs();
+    get_network_logs: async (args: { clear?: boolean }) => {
+      const result = await socketManager.getNetworkLogs(args.clear);
       return {
         content: [
           {
             type: 'text' as const,
             text: JSON.stringify(result, null, 2),
+          },
+        ],
+      };
+    },
+
+    get_app_logs: async (args: { limit?: number; clear?: boolean }) => {
+      const logs = tauriManager.getLogs({ limit: args.limit, clear: args.clear });
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: logs.length > 0 ? logs.join('\n') : '(no logs captured)',
           },
         ],
       };

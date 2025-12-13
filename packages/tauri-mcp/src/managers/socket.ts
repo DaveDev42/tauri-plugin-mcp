@@ -185,13 +185,13 @@ export class SocketManager {
     return `Navigated to ${url}`;
   }
 
-  async getConsoleLogs(): Promise<unknown[]> {
-    const result = await this.sendCommand('get_console_logs');
-    return result as unknown[];
+  async getConsoleLogs(clear?: boolean): Promise<unknown> {
+    const result = await this.sendCommand('get_console_logs', { clear: clear ?? false });
+    return result;
   }
 
-  async getNetworkLogs(): Promise<unknown[]> {
-    const result = await this.sendCommand('get_network_logs');
-    return result as unknown[];
+  async getNetworkLogs(clear?: boolean): Promise<unknown> {
+    const result = await this.sendCommand('get_network_logs', { clear: clear ?? false });
+    return result;
   }
 }

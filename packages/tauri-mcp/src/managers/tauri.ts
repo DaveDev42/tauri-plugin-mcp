@@ -474,6 +474,20 @@ export class TauriManager {
     return this.appConfig;
   }
 
+  /**
+   * Get captured app logs (stdout/stderr)
+   * @param limit Maximum number of lines to return (default: all)
+   * @param clear Whether to clear the buffer after reading (default: false)
+   */
+  getLogs(options: { limit?: number; clear?: boolean } = {}): string[] {
+    const { limit, clear = false } = options;
+    const logs = limit ? this.outputBuffer.slice(-limit) : [...this.outputBuffer];
+    if (clear) {
+      this.outputBuffer = [];
+    }
+    return logs;
+  }
+
   private sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }

@@ -336,6 +336,36 @@ return {{ success: true }};
     )
 }
 
+/// JavaScript code to get console logs
+pub fn get_console_logs_js(clear: bool) -> String {
+    format!(
+        r#"
+const logs = window.__MCP_CONSOLE_LOGS__ || [];
+const result = {{ logs: [...logs] }};
+if ({clear}) {{
+    window.__MCP_CONSOLE_LOGS__ = [];
+}}
+return result;
+"#,
+        clear = if clear { "true" } else { "false" }
+    )
+}
+
+/// JavaScript code to get network logs
+pub fn get_network_logs_js(clear: bool) -> String {
+    format!(
+        r#"
+const logs = window.__MCP_NETWORK_LOGS__ || [];
+const result = {{ logs: [...logs] }};
+if ({clear}) {{
+    window.__MCP_NETWORK_LOGS__ = [];
+}}
+return result;
+"#,
+        clear = if clear { "true" } else { "false" }
+    )
+}
+
 /// JavaScript code to take a screenshot
 pub const SCREENSHOT_JS: &str = r#"
     // Load html2canvas if not already loaded

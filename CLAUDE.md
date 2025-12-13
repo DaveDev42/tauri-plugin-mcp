@@ -48,7 +48,7 @@ Claude Code <-> MCP Server (Node.js) <-> IPC Socket <-> Tauri Plugin (Rust) <-> 
 - `tools/lifecycle.ts` - Tool schemas and handlers
 
 **Frontend API (`packages/tauri-plugin-mcp-api/src/`):**
-- `index.ts` - JS bridge, exposes `window.__MCP_EVAL__`
+- `index.ts` - JS bridge, exposes `window.__MCP_EVAL__`, captures console/network logs
 
 ## Tool Reference
 
@@ -62,10 +62,11 @@ Claude Code <-> MCP Server (Node.js) <-> IPC Socket <-> Tauri Plugin (Rust) <-> 
 | `fill` | `ref?: number`, `selector?: string`, `value: string` | Either ref or selector required |
 | `press_key` | `key: string` | Key name (e.g., "Enter", "Tab") |
 | `navigate` | `url: string` | Sets window.location.href |
-| `screenshot` | - | Returns base64 PNG via html2canvas |
+| `screenshot` | - | Returns base64 JPEG via html2canvas |
 | `evaluate_script` | `script: string` | Executes JS, returns result |
-| `get_console_logs` | - | Returns captured console logs |
-| `get_network_logs` | - | Returns captured network requests |
+| `get_console_logs` | `clear?: boolean` | Returns captured browser console logs (log/info/warn/error/debug) |
+| `get_network_logs` | `clear?: boolean` | Returns captured browser network requests (fetch/XHR) |
+| `get_app_logs` | `limit?: number`, `clear?: boolean` | Returns Tauri app stdout/stderr (Rust logs, build output) |
 
 ### Ref System
 
