@@ -126,7 +126,11 @@ impl DebugServer {
         info!("Starting debug server at: {}", full_pipe_path);
 
         let listener = ListenerOptions::new()
-            .name(self.socket_path.as_str().to_ns_name::<GenericNamespaced>()?)
+            .name(
+                self.socket_path
+                    .as_str()
+                    .to_ns_name::<GenericNamespaced>()?,
+            )
             .create_tokio()?;
 
         let handler = Arc::clone(&self.handler);

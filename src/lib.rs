@@ -94,7 +94,9 @@ impl<R: Runtime> IpcCommandHandler<R> {
     /// Execute JavaScript via IPC bridge and wait for result
     async fn eval_with_result(&self, script: &str) -> Result<serde_json::Value, String> {
         if !self.state.is_bridge_ready() {
-            return Err("MCP bridge not initialized. Call initMcpBridge() in your frontend.".to_string());
+            return Err(
+                "MCP bridge not initialized. Call initMcpBridge() in your frontend.".to_string(),
+            );
         }
 
         // Generate unique request ID
@@ -111,7 +113,10 @@ impl<R: Runtime> IpcCommandHandler<R> {
 
         // Call JS eval function via webview.eval
         // The JS bridge will invoke plugin:mcp|eval_result when done
-        let escaped_script = script.replace('\\', "\\\\").replace('\'', "\\'").replace('\n', "\\n");
+        let escaped_script = script
+            .replace('\\', "\\\\")
+            .replace('\'', "\\'")
+            .replace('\n', "\\n");
         let js = format!(
             "window.__MCP_EVAL__('{}', '{}')",
             request_id, escaped_script
@@ -155,18 +160,18 @@ impl<R: Runtime + 'static> CommandHandler for IpcCommandHandler<R> {
         match request.method.as_str() {
             "ping" => JsonRpcResponse::success(id, serde_json::json!({"pong": true})),
 
-            "snapshot" => {
-                match self.eval_with_result(commands::SNAPSHOT_JS).await {
-                    Ok(result) => JsonRpcResponse::success(id, result),
-                    Err(e) => JsonRpcResponse::error(id, EVAL_ERROR, e),
-                }
-            }
+            "snapshot" => match self.eval_with_result(commands::SNAPSHOT_JS).await {
+                Ok(result) => JsonRpcResponse::success(id, result),
+                Err(e) => JsonRpcResponse::error(id, EVAL_ERROR, e),
+            },
 
             "click" => {
                 let js = if let Some(ref_num) = request.params.get("ref").and_then(|v| v.as_u64()) {
                     commands::click_ref_js(ref_num as u32)
                 } else {
-                    let selector = request.params.get("selector")
+                    let selector = request
+                        .params
+                        .get("selector")
                         .and_then(|v| v.as_str())
                         .unwrap_or("");
                     commands::click_js(selector)
@@ -178,13 +183,17 @@ impl<R: Runtime + 'static> CommandHandler for IpcCommandHandler<R> {
             }
 
             "fill" => {
-                let value = request.params.get("value")
+                let value = request
+                    .params
+                    .get("value")
                     .and_then(|v| v.as_str())
                     .unwrap_or("");
                 let js = if let Some(ref_num) = request.params.get("ref").and_then(|v| v.as_u64()) {
                     commands::fill_ref_js(ref_num as u32, value)
                 } else {
-                    let selector = request.params.get("selector")
+                    let selector = request
+                        .params
+                        .get("selector")
                         .and_then(|v| v.as_str())
                         .unwrap_or("");
                     commands::fill_js(selector, value)
@@ -196,7 +205,9 @@ impl<R: Runtime + 'static> CommandHandler for IpcCommandHandler<R> {
             }
 
             "press_key" => {
-                let key = request.params.get("key")
+                let key = request
+                    .params
+                    .get("key")
                     .and_then(|v| v.as_str())
                     .unwrap_or("");
                 let js = commands::press_key_js(key);
@@ -207,7 +218,9 @@ impl<R: Runtime + 'static> CommandHandler for IpcCommandHandler<R> {
             }
 
             "evaluate_script" => {
-                let script = request.params.get("script")
+                let script = request
+                    .params
+                    .get("script")
                     .and_then(|v| v.as_str())
                     .unwrap_or("");
                 let wrapped = format!("return ({});", script);
@@ -218,7 +231,9 @@ impl<R: Runtime + 'static> CommandHandler for IpcCommandHandler<R> {
             }
 
             "navigate" => {
-                let url = request.params.get("url")
+                let url = request
+                    .params
+                    .get("url")
                     .and_then(|v| v.as_str())
                     .unwrap_or("");
                 let js = commands::navigate_js(url);
@@ -246,7 +261,11 @@ impl<R: Runtime + 'static> CommandHandler for IpcCommandHandler<R> {
                 JsonRpcResponse::success(id, serde_json::json!({"logs": []}))
             }
 
-            _ => JsonRpcResponse::error(id, METHOD_NOT_FOUND, format!("Unknown method: {}", request.method)),
+            _ => JsonRpcResponse::error(
+                id,
+                METHOD_NOT_FOUND,
+                format!("Unknown method: {}", request.method),
+            ),
         }
     }
 }
@@ -261,11 +280,11 @@ async fn register_bridge(state: State<'_, Arc<McpState>>) -> Result<(), String> 
 
 /// Receive eval result from JS bridge
 #[tauri::command]
-async fn eval_result(
-    state: State<'_, Arc<McpState>>,
-    result: EvalResult,
-) -> Result<(), String> {
-    debug!("Received eval result for {}: success={}", result.request_id, result.success);
+async fn eval_result(state: State<'_, Arc<McpState>>, result: EvalResult) -> Result<(), String> {
+    debug!(
+        "Received eval result for {}: success={}",
+        result.request_id, result.success
+    );
 
     let mut pending = state.pending.lock().await;
     if let Some(tx) = pending.remove(&result.request_id) {
@@ -310,12 +329,21 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
         .invoke_handler(tauri::generate_handler![register_bridge, eval_result])
         .setup(|app, _api| {
             let project_root = get_project_root();
-            eprintln!("[tauri-plugin-mcp] Setting up for project: {}", project_root.display());
-            info!("Setting up tauri-plugin-mcp for project: {}", project_root.display());
+            eprintln!(
+                "[tauri-plugin-mcp] Setting up for project: {}",
+                project_root.display()
+            );
+            info!(
+                "Setting up tauri-plugin-mcp for project: {}",
+                project_root.display()
+            );
 
             // Create debug server
             let debug_server = Arc::new(DebugServer::new(&project_root));
-            eprintln!("[tauri-plugin-mcp] Debug server created, socket: {}", debug_server.socket_path());
+            eprintln!(
+                "[tauri-plugin-mcp] Debug server created, socket: {}",
+                debug_server.socket_path()
+            );
 
             // Create plugin state
             let state = Arc::new(McpState::new(Arc::clone(&debug_server)));
