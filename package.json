@@ -8,6 +8,19 @@
     "url": "https://github.com/DaveDev42/tauri-plugin-mcp.git"
   },
   "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./packages/tauri-plugin-mcp-api/dist/index.js",
+      "types": "./packages/tauri-plugin-mcp-api/dist/index.d.ts"
+    },
+    "./api": {
+      "import": "./packages/tauri-plugin-mcp-api/dist/index.js",
+      "types": "./packages/tauri-plugin-mcp-api/dist/index.d.ts"
+    }
+  },
+  "main": "./packages/tauri-plugin-mcp-api/dist/index.js",
+  "types": "./packages/tauri-plugin-mcp-api/dist/index.d.ts",
   "scripts": {
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck"

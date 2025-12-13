@@ -59,7 +59,7 @@ pub fn run() {
 ### 3. Initialize the bridge (main.tsx)
 
 ```typescript
-import { initMcpBridge } from 'tauri-plugin-mcp-api';
+import { initMcpBridge } from 'tauri-plugin-mcp';
 
 // Initialize MCP bridge for automation (dev mode only recommended)
 if (import.meta.env.DEV) {
