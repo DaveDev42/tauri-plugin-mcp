@@ -15,6 +15,7 @@ export const toolSchemas = {
     inputSchema: z.object({
       wait_for_ready: z.boolean().optional().describe('Wait for ready'),
       timeout_secs: z.number().optional().describe('Timeout seconds'),
+      features: z.array(z.string()).optional().describe('Cargo features to enable'),
     }),
   },
   stop_app: {
@@ -106,7 +107,7 @@ export function createToolHandlers(tauriManager: TauriManager, socketManager: So
       };
     },
 
-    launch_app: async (args: { wait_for_ready?: boolean; timeout_secs?: number }) => {
+    launch_app: async (args: { wait_for_ready?: boolean; timeout_secs?: number; features?: string[] }) => {
       const result = await tauriManager.launch(args);
       return {
         content: [

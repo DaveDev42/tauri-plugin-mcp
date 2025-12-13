@@ -14,6 +14,7 @@ export type AppStatus = 'not_running' | 'starting' | 'running';
 export interface LaunchOptions {
   wait_for_ready?: boolean;
   timeout_secs?: number;
+  features?: string[];
 }
 
 const SOCKET_FILE_NAME = '.tauri-mcp.sock';
@@ -253,6 +254,7 @@ export class TauriManager {
   async launch(options: LaunchOptions = {}): Promise<{ message: string; port: number }> {
     const waitForReady = options.wait_for_ready ?? true;
     const timeoutSecs = options.timeout_secs ?? 60;
+    const features = options.features ?? [];
 
     if (!this.appConfig) {
       throw new Error('No Tauri app detected. Make sure src-tauri/Cargo.toml exists.');
@@ -275,10 +277,11 @@ export class TauriManager {
 
     console.error(`[tauri-mcp] Launching app with Vite port ${this.vitePort}...`);
 
-    // Use shell: true on Windows to find pnpm.cmd
-    // Don't override config - use existing tauri.conf.json
-    // Add --features dummy_camera for testing without real camera
-    const tauriArgs = ['tauri', 'dev', '--features', 'dummy_camera'];
+    // Build tauri dev command with optional features
+    const tauriArgs = ['tauri', 'dev'];
+    if (features.length > 0) {
+      tauriArgs.push('--features', features.join(','));
+    }
     console.error(`[tauri-mcp] Command: pnpm ${tauriArgs.join(' ')}`);
     this.process = spawn('pnpm', tauriArgs, {
       cwd: this.appConfig.appDir,
