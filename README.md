@@ -138,20 +138,20 @@ Add to `.mcp.json` in your project root:
 
 ### Using `features` parameter
 
-To launch with Cargo features (e.g., dummy camera for testing):
+To launch with Cargo features:
 
 ```
-launch_app({ features: ["dummy_camera"] })
+launch_app({ features: ["my_feature"] })
 ```
 
-This runs: `pnpm tauri dev --features dummy_camera`
+This runs: `pnpm tauri dev --features my_feature`
 
 ## Usage Example
 
 Typical testing workflow:
 
 ```
-1. launch_app({ features: ["dummy_camera"], timeout_secs: 120 })
+1. launch_app({ timeout_secs: 120 })
 2. snapshot()           # Get element refs
 3. click({ ref: 5 })    # Click button by ref
 4. fill({ selector: "input[name='email']", value: "test@example.com" })

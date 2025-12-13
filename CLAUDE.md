@@ -126,7 +126,7 @@ Look for logs:
 ## Testing Workflow
 
 1. Set `TAURI_PROJECT_ROOT` to target app
-2. `launch_app({ features: ["dummy_camera"], timeout_secs: 120 })`
+2. `launch_app({ timeout_secs: 120 })`
 3. `snapshot()` to inspect UI
 4. `click`/`fill` to interact
 5. `screenshot()` to verify
