@@ -4,21 +4,33 @@ Cross-platform Tauri test automation plugin via [MCP (Model Context Protocol)](h
 
 Enables AI assistants like Claude to interact with your Tauri desktop app for testing and automation.
 
+## Features
+
+- **Cross-platform**: Windows (Named Pipes) + macOS/Linux (Unix Sockets)
+- **No CDP dependency**: Works on all WebView backends including macOS WKWebView
+- **MCP integration**: Direct integration with Claude Code and other MCP clients
+
 ## Installation
 
-### Rust (src-tauri/Cargo.toml)
+### 1. Rust Plugin (src-tauri/Cargo.toml)
 
 ```toml
 [dependencies]
 tauri-plugin-mcp = { git = "https://github.com/DaveDev42/tauri-plugin-mcp" }
 ```
 
-### Frontend (package.json)
+### 2. Frontend API (package.json)
 
 ```bash
-pnpm add tauri-plugin-mcp-api
-# or
-npm install tauri-plugin-mcp-api
+# Install from GitHub
+pnpm add github:DaveDev42/tauri-plugin-mcp#main
+```
+
+### 3. MCP Server
+
+The MCP server is included in the package. After installing, it will be available at:
+```
+node_modules/tauri-plugin-mcp/packages/tauri-mcp/dist/index.js
 ```
 
 ## Setup
@@ -49,8 +61,10 @@ pub fn run() {
 ```typescript
 import { initMcpBridge } from 'tauri-plugin-mcp-api';
 
-// Initialize MCP bridge for automation
-initMcpBridge();
+// Initialize MCP bridge for automation (dev mode only recommended)
+if (import.meta.env.DEV) {
+  initMcpBridge();
+}
 ```
 
 ## MCP Server Setup
@@ -62,24 +76,24 @@ Add to your Claude Code MCP configuration (`.mcp.json`):
   "mcpServers": {
     "tauri-mcp": {
       "command": "node",
-      "args": ["packages/tauri-mcp/dist/index.js"],
-      "cwd": "/path/to/tauri-plugin-mcp",
+      "args": ["node_modules/tauri-plugin-mcp/packages/tauri-mcp/dist/index.js"],
       "env": {
-        "TAURI_PROJECT_ROOT": "/path/to/your/tauri-app"
+        "TAURI_PROJECT_ROOT": "."
       }
     }
   }
 }
 ```
 
-Or if you have the package installed globally:
+For development with a local clone of this repository:
 
 ```json
 {
   "mcpServers": {
     "tauri-mcp": {
-      "command": "npx",
-      "args": ["tauri-mcp"],
+      "command": "node",
+      "args": ["packages/tauri-mcp/dist/index.js"],
+      "cwd": "/path/to/tauri-plugin-mcp",
       "env": {
         "TAURI_PROJECT_ROOT": "/path/to/your/tauri-app"
       }
