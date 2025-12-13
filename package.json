@@ -24,5 +24,10 @@
   "scripts": {
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "@tauri-apps/api": "^2.0.0",
+    "zod": "^3.24.1"
   }
 }
