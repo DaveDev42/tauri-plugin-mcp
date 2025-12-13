@@ -70,6 +70,8 @@ JSON-RPC 2.0 over newline-delimited socket messages. The Rust plugin listens, th
 | `screenshot` | Capture webview (uses html2canvas) |
 | `navigate` | Set window.location.href |
 | `evaluate_script` | Execute arbitrary JS |
+| `get_console_logs` | Get browser console logs (TODO) |
+| `get_network_logs` | Get network request logs (TODO) |
 
 ### Ref System
 

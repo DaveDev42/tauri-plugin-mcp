@@ -61,11 +61,27 @@ Add to your Claude Code MCP configuration (`.mcp.json`):
 {
   "mcpServers": {
     "tauri-mcp": {
-      "command": "cargo",
-      "args": ["run", "-p", "tauri-mcp-server"],
+      "command": "node",
+      "args": ["packages/tauri-mcp/dist/index.js"],
       "cwd": "/path/to/tauri-plugin-mcp",
       "env": {
-        "TAURI_MCP_PROJECT_ROOT": "/path/to/your/tauri-app"
+        "TAURI_PROJECT_ROOT": "/path/to/your/tauri-app"
+      }
+    }
+  }
+}
+```
+
+Or if you have the package installed globally:
+
+```json
+{
+  "mcpServers": {
+    "tauri-mcp": {
+      "command": "npx",
+      "args": ["tauri-mcp"],
+      "env": {
+        "TAURI_PROJECT_ROOT": "/path/to/your/tauri-app"
       }
     }
   }
@@ -86,6 +102,8 @@ Add to your Claude Code MCP configuration (`.mcp.json`):
 | `navigate` | Navigate to a URL |
 | `screenshot` | Take a screenshot |
 | `evaluate_script` | Execute custom JavaScript |
+| `get_console_logs` | Get browser console logs |
+| `get_network_logs` | Get network request logs |
 
 ## How It Works
 
