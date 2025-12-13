@@ -9,18 +9,20 @@ A Tauri plugin for test automation via MCP (Model Context Protocol). Enables AI 
 ## Build Commands
 
 ```bash
-# Build all packages (Rust + TypeScript)
-cargo build                    # Build Rust plugin
-pnpm build                     # Build all TypeScript packages
+# Build all packages
+cargo build                    # Rust plugin
+pnpm build                     # TypeScript packages (MCP server + API)
 
 # Build specific packages
-pnpm --filter tauri-mcp build  # MCP server package
-pnpm --filter tauri-plugin-mcp-api build  # Frontend API package
+pnpm --filter tauri-mcp build
+pnpm --filter tauri-plugin-mcp-api build
 
 # Type checking
-pnpm typecheck                 # All packages
-cargo check                    # Rust only
+pnpm typecheck
+cargo check
 ```
+
+**Important**: After modifying TypeScript, always run `pnpm build` - the `dist/` files are committed to git for GitHub package installation.
 
 ## Architecture
 
@@ -33,58 +35,111 @@ Claude Code <-> MCP Server (Node.js) <-> IPC Socket <-> Tauri Plugin (Rust) <-> 
 ### Key Components
 
 **Rust Plugin (`src/`):**
-- `lib.rs` - Plugin entry point, registers Tauri commands `register_bridge` and `eval_result`, handles JSON-RPC request routing
-- `debug_server.rs` - IPC server using Unix sockets (`.tauri-mcp.sock`) or Windows named pipes (`\\.\pipe\tauri-mcp-{hash}`)
-- `commands/mod.rs` - JavaScript code generation for DOM operations (snapshot, click, fill, etc.)
+- `lib.rs` - Plugin entry, registers `register_bridge` and `eval_result` commands
+- `debug_server.rs` - IPC server (Unix sockets / Windows named pipes)
+- `commands/mod.rs` - JS code generation for DOM operations
 - `protocol.rs` - JSON-RPC message types
 
 **MCP Server (`packages/tauri-mcp/src/`):**
-- `index.ts` - Entry point, uses `TAURI_PROJECT_ROOT` env var
-- `server.ts` - MCP server setup using `@modelcontextprotocol/sdk`
-- `managers/tauri.ts` - App lifecycle (launch via `pnpm tauri dev`, detect project, manage process)
-- `managers/socket.ts` - IPC client connecting to Rust plugin
-- `tools/lifecycle.ts` - Tool definitions and handlers
+- `index.ts` - Entry point
+- `server.ts` - MCP server using `@modelcontextprotocol/sdk`
+- `managers/tauri.ts` - App lifecycle management
+- `managers/socket.ts` - IPC client
+- `tools/lifecycle.ts` - Tool schemas and handlers
 
 **Frontend API (`packages/tauri-plugin-mcp-api/src/`):**
-- `index.ts` - JS bridge initialization, exposes `window.__MCP_EVAL__` for script execution
+- `index.ts` - JS bridge, exposes `window.__MCP_EVAL__`
 
-### IPC Protocol
+## Tool Reference
 
-JSON-RPC 2.0 over newline-delimited socket messages. The Rust plugin listens, the MCP server connects as client.
-
-**Socket Paths:**
-- Unix: `{project_root}/.tauri-mcp.sock`
-- Windows: `\\.\pipe\tauri-mcp-{hash}` where hash is derived from project path
-
-### Available MCP Tools
-
-| Tool | Purpose |
-|------|---------|
-| `app_status` | Check if app is running |
-| `launch_app` | Start Tauri app via `pnpm tauri dev` |
-| `stop_app` | Terminate app process |
-| `snapshot` | Get accessibility tree with ref numbers |
-| `click` | Click element by ref or CSS selector |
-| `fill` | Fill input by ref or selector |
-| `press_key` | Dispatch keyboard events |
-| `screenshot` | Capture webview (uses html2canvas) |
-| `navigate` | Set window.location.href |
-| `evaluate_script` | Execute arbitrary JS |
-| `get_console_logs` | Get browser console logs (TODO) |
-| `get_network_logs` | Get network request logs (TODO) |
+| Tool | Parameters | Description |
+|------|------------|-------------|
+| `app_status` | - | Returns `{ status, app }` |
+| `launch_app` | `wait_for_ready?: boolean` (default: true), `timeout_secs?: number` (default: 60), `features?: string[]` | Runs `pnpm tauri dev [--features ...]` |
+| `stop_app` | - | Kills app process tree |
+| `snapshot` | - | Returns accessibility tree with ref numbers |
+| `click` | `ref?: number`, `selector?: string` | Either ref or selector required |
+| `fill` | `ref?: number`, `selector?: string`, `value: string` | Either ref or selector required |
+| `press_key` | `key: string` | Key name (e.g., "Enter", "Tab") |
+| `navigate` | `url: string` | Sets window.location.href |
+| `screenshot` | - | Returns base64 PNG via html2canvas |
+| `evaluate_script` | `script: string` | Executes JS, returns result |
+| `get_console_logs` | - | Returns captured console logs |
+| `get_network_logs` | - | Returns captured network requests |
 
 ### Ref System
 
-The `snapshot` tool builds an accessibility tree and assigns ref numbers to elements, stored in `window.__MCP_REF_MAP__`. Subsequent `click`/`fill` operations can reference elements by ref number for reliable targeting after snapshot.
+`snapshot` assigns ref numbers stored in `window.__MCP_REF_MAP__`. Use refs for reliable element targeting:
+
+```
+snapshot()          # Returns: [ref=5] <button>Submit</button>
+click({ ref: 5 })   # Clicks the button
+```
+
+## Environment Variables
+
+| Variable | Purpose | Example |
+|----------|---------|---------|
+| `TAURI_PROJECT_ROOT` | Target Tauri app directory | `"."` or `/path/to/app` |
+
+## Platform-Specific Notes
+
+### Windows
+- Uses named pipes: `\\.\pipe\tauri-mcp-{hash}`
+- Hash derived from project path for uniqueness
+- Detection via `fs.readdirSync('//./pipe/')`
+
+### macOS / Linux
+- Uses Unix domain socket: `{project_root}/.tauri-mcp.sock`
+- Socket file created when app starts
+- Cleaned up on stop
+
+## Debugging
+
+### Check if socket exists
+
+**Unix:**
+```bash
+ls -la .tauri-mcp.sock
+```
+
+**Windows (PowerShell):**
+```powershell
+Get-ChildItem //./pipe/ | Where-Object { $_.Name -like 'tauri-mcp-*' }
+```
+
+### Test socket connection
+
+Look for logs:
+```
+[tauri-mcp] Detected Tauri app: {name} at {path}
+[tauri-mcp] Launching app with Vite port {port}...
+[tauri-plugin-mcp] full_path: \\.\pipe\tauri-mcp-XXXXX
+```
+
+### Common Issues
+
+1. **"MCP bridge not initialized"**: Frontend `initMcpBridge()` not called
+2. **Socket timeout**: App not running or socket path mismatch
+3. **Empty snapshot**: App not fully loaded, try waiting longer
+
+## Testing Workflow
+
+1. Set `TAURI_PROJECT_ROOT` to target app
+2. `launch_app({ features: ["dummy_camera"], timeout_secs: 120 })`
+3. `snapshot()` to inspect UI
+4. `click`/`fill` to interact
+5. `screenshot()` to verify
+6. `stop_app()` to cleanup
 
 ## Workspace Structure
 
-- Root `Cargo.toml` - Rust plugin crate
-- Root `package.json` - pnpm workspace scripts
-- `packages/tauri-mcp/` - MCP server (npm package)
-- `packages/tauri-plugin-mcp-api/` - Frontend bridge (npm package)
-- `permissions/` - Tauri permission definitions
-
-## Testing with a Tauri App
-
-Set `TAURI_PROJECT_ROOT` environment variable to the target Tauri project directory, or run from within that directory.
+```
+/
+├── src/                    # Rust plugin
+├── packages/
+│   ├── tauri-mcp/         # MCP server
+│   └── tauri-plugin-mcp-api/  # Frontend bridge
+├── permissions/           # Tauri permissions
+└── dist/                  # Built TypeScript (committed)
+```

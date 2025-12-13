@@ -10,6 +10,22 @@ Enables AI assistants like Claude to interact with your Tauri desktop app for te
 - **No CDP dependency**: Works on all WebView backends including macOS WKWebView
 - **MCP integration**: Direct integration with Claude Code and other MCP clients
 
+## Prerequisites
+
+- **Node.js** >= 18
+- **Tauri** v2.x
+- **pnpm** (recommended) or npm
+- **Rust** with cargo
+
+## Quick Start
+
+1. [ ] Add Rust plugin to `src-tauri/Cargo.toml`
+2. [ ] Install npm package: `pnpm add github:DaveDev42/tauri-plugin-mcp#main`
+3. [ ] Register plugin in `src-tauri/src/lib.rs`
+4. [ ] Add `mcp:default` permission
+5. [ ] Initialize bridge in `main.tsx`
+6. [ ] Create `.mcp.json` for Claude Code
+
 ## Installation
 
 ### 1. Rust Plugin (src-tauri/Cargo.toml)
@@ -22,13 +38,12 @@ tauri-plugin-mcp = { git = "https://github.com/DaveDev42/tauri-plugin-mcp" }
 ### 2. Frontend API (package.json)
 
 ```bash
-# Install from GitHub
 pnpm add github:DaveDev42/tauri-plugin-mcp#main
 ```
 
 ### 3. MCP Server
 
-The MCP server is included in the package. After installing, it will be available at:
+The MCP server is included in the package at:
 ```
 node_modules/tauri-plugin-mcp/packages/tauri-mcp/dist/index.js
 ```
@@ -46,30 +61,49 @@ pub fn run() {
 }
 ```
 
-### 2. Add permissions (src-tauri/capabilities/default.json)
+### 2. Add permissions
+
+**Option A: In tauri.conf.json or config/*.json5 (recommended)**
+
+```json5
+{
+  "security": {
+    "capabilities": [{
+      "identifier": "main-capability",
+      "windows": ["main"],
+      "permissions": ["core:default", "mcp:default"]
+    }]
+  }
+}
+```
+
+**Option B: Separate file (src-tauri/capabilities/default.json)**
 
 ```json
 {
-  "permissions": [
-    "mcp:default"
-  ]
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "windows": ["main"],
+  "permissions": ["core:default", "mcp:default"]
 }
 ```
 
 ### 3. Initialize the bridge (main.tsx)
 
 ```typescript
-import { initMcpBridge } from 'tauri-plugin-mcp';
-
-// Initialize MCP bridge for automation (dev mode only recommended)
+// Initialize MCP bridge for E2E testing (dev mode only)
 if (import.meta.env.DEV) {
-  initMcpBridge();
+  import('tauri-plugin-mcp').then(({ initMcpBridge }) => {
+    initMcpBridge().catch(err => {
+      console.warn('[MCP] Bridge initialization failed:', err);
+    });
+  });
 }
 ```
 
-## MCP Server Setup
+## MCP Server Configuration
 
-Add to your Claude Code MCP configuration (`.mcp.json`):
+Add to `.mcp.json` in your project root:
 
 ```json
 {
@@ -85,49 +119,86 @@ Add to your Claude Code MCP configuration (`.mcp.json`):
 }
 ```
 
-For development with a local clone of this repository:
-
-```json
-{
-  "mcpServers": {
-    "tauri-mcp": {
-      "command": "node",
-      "args": ["packages/tauri-mcp/dist/index.js"],
-      "cwd": "/path/to/tauri-plugin-mcp",
-      "env": {
-        "TAURI_PROJECT_ROOT": "/path/to/your/tauri-app"
-      }
-    }
-  }
-}
-```
-
 ## Available Tools
 
-| Tool | Description |
-|------|-------------|
-| `app_status` | Check if the Tauri app is running |
-| `launch_app` | Launch the Tauri app |
-| `stop_app` | Stop the Tauri app |
-| `snapshot` | Get accessibility tree snapshot |
-| `click` | Click an element (by ref or CSS selector) |
-| `fill` | Fill an input field |
-| `press_key` | Press a keyboard key |
-| `navigate` | Navigate to a URL |
-| `screenshot` | Take a screenshot |
-| `evaluate_script` | Execute custom JavaScript |
-| `get_console_logs` | Get browser console logs |
-| `get_network_logs` | Get network request logs |
+| Tool | Parameters | Description |
+|------|------------|-------------|
+| `app_status` | - | Check if app is running |
+| `launch_app` | `wait_for_ready?: boolean`, `timeout_secs?: number`, `features?: string[]` | Launch Tauri app via `pnpm tauri dev` |
+| `stop_app` | - | Stop the app |
+| `snapshot` | - | Get accessibility tree (returns ref numbers) |
+| `click` | `ref?: number`, `selector?: string` | Click element by ref or CSS selector |
+| `fill` | `ref?: number`, `selector?: string`, `value: string` | Fill input field |
+| `press_key` | `key: string` | Press keyboard key |
+| `navigate` | `url: string` | Navigate to URL |
+| `screenshot` | - | Take screenshot (uses html2canvas) |
+| `evaluate_script` | `script: string` | Execute custom JavaScript |
+| `get_console_logs` | - | Get console logs |
+| `get_network_logs` | - | Get network logs |
+
+### Using `features` parameter
+
+To launch with Cargo features (e.g., dummy camera for testing):
+
+```
+launch_app({ features: ["dummy_camera"] })
+```
+
+This runs: `pnpm tauri dev --features dummy_camera`
+
+## Usage Example
+
+Typical testing workflow:
+
+```
+1. launch_app({ features: ["dummy_camera"], timeout_secs: 120 })
+2. snapshot()           # Get element refs
+3. click({ ref: 5 })    # Click button by ref
+4. fill({ selector: "input[name='email']", value: "test@example.com" })
+5. screenshot()         # Verify result
+6. stop_app()
+```
 
 ## How It Works
-
-1. **Plugin** embeds a Unix socket/Named pipe server in your Tauri app
-2. **MCP Server** connects Claude to your app via the socket
-3. **JS Bridge** enables bidirectional communication for automation
 
 ```
 Claude Code <-> MCP Server <-> Socket <-> Tauri Plugin <-> JS Bridge <-> Your App
 ```
+
+1. **Rust Plugin** creates IPC server (Unix socket or Windows named pipe)
+2. **MCP Server** connects to IPC and exposes tools to Claude
+3. **JS Bridge** (`initMcpBridge()`) enables DOM operations in WebView
+
+### Socket Paths
+
+- **Unix**: `{project_root}/.tauri-mcp.sock`
+- **Windows**: `\\.\pipe\tauri-mcp-{hash}` (hash derived from project path)
+
+## Troubleshooting
+
+### "MCP bridge not initialized"
+
+The JS bridge isn't running. Check:
+- `initMcpBridge()` is called in your frontend code
+- App is running in dev mode (`import.meta.env.DEV`)
+- Check browser console for initialization errors
+
+### Socket connection failed
+
+- Ensure the app is running (`launch_app` first)
+- On Windows, check pipe path in logs: `[tauri-plugin-mcp] full_path: \\.\pipe\tauri-mcp-XXXXX`
+- On Unix, check if `.tauri-mcp.sock` exists in project root
+
+### App launch timeout
+
+- Increase `timeout_secs` (default: 60)
+- Check if `pnpm tauri dev` works manually
+- Look for build errors in terminal output
+
+### snapshot returns empty
+
+- Wait for app to fully load (use `wait_for_ready: true`)
+- Check if bridge initialized (look for `[MCP]` logs in console)
 
 ## License
 
