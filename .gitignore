@@ -3,7 +3,6 @@ target/
 
 # Node
 node_modules/
-dist/
 *.tsbuildinfo
 
 # IDE
