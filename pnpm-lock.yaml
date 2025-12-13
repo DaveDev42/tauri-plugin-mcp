@@ -6,7 +6,17 @@ settings:
 
 importers:
 
-  .: {}
+  .:
+    dependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.0.4
+        version: 1.24.3(zod@3.25.76)
+      '@tauri-apps/api':
+        specifier: ^2.0.0
+        version: 2.9.1
+      zod:
+        specifier: ^3.24.1
+        version: 3.25.76
 
   packages/tauri-mcp:
     dependencies:
