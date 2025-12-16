@@ -15,6 +15,7 @@ export interface LaunchOptions {
   wait_for_ready?: boolean;
   timeout_secs?: number;
   features?: string[];
+  devtools?: boolean;
 }
 
 const SOCKET_FILE_NAME = '.tauri-mcp.sock';
@@ -255,6 +256,7 @@ export class TauriManager {
     const waitForReady = options.wait_for_ready ?? true;
     const timeoutSecs = options.timeout_secs ?? 60;
     const features = options.features ?? [];
+    const devtools = options.devtools ?? false;
 
     if (!this.appConfig) {
       throw new Error('No Tauri app detected. Make sure src-tauri/Cargo.toml exists.');
@@ -289,6 +291,7 @@ export class TauriManager {
       env: {
         ...process.env,
         TAURI_MCP_PROJECT_ROOT: this.projectRoot,
+        TAURI_MCP_DEVTOOLS: devtools ? '1' : '',
         VITE_PORT: this.vitePort.toString(),
       },
       detached: false,

@@ -16,6 +16,7 @@ export const toolSchemas = {
       wait_for_ready: z.boolean().optional().describe('Wait for ready'),
       timeout_secs: z.number().optional().describe('Timeout seconds'),
       features: z.array(z.string()).optional().describe('Cargo features to enable'),
+      devtools: z.boolean().optional().describe('Open devtools on launch'),
     }),
   },
   stop_app: {
@@ -119,7 +120,7 @@ export function createToolHandlers(tauriManager: TauriManager, socketManager: So
       };
     },
 
-    launch_app: async (args: { wait_for_ready?: boolean; timeout_secs?: number; features?: string[] }) => {
+    launch_app: async (args: { wait_for_ready?: boolean; timeout_secs?: number; features?: string[]; devtools?: boolean }) => {
       const result = await tauriManager.launch(args);
       return {
         content: [

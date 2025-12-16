@@ -286,11 +286,30 @@ impl<R: Runtime + 'static> CommandHandler for IpcCommandHandler<R> {
     }
 }
 
+/// Check if devtools should be opened
+fn should_open_devtools() -> bool {
+    std::env::var("TAURI_MCP_DEVTOOLS")
+        .map(|v| !v.is_empty())
+        .unwrap_or(false)
+}
+
 /// Register the JS bridge - called from frontend
 #[tauri::command]
-async fn register_bridge(state: State<'_, Arc<McpState>>) -> Result<(), String> {
+async fn register_bridge<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, Arc<McpState>>,
+) -> Result<(), String> {
     info!("JS bridge registered");
     state.set_bridge_ready(true);
+
+    // Open devtools if requested via environment variable
+    if should_open_devtools() {
+        info!("Opening devtools (TAURI_MCP_DEVTOOLS is set)");
+        if let Some((_, window)) = app.webview_windows().iter().next() {
+            window.open_devtools();
+        }
+    }
+
     Ok(())
 }
 
