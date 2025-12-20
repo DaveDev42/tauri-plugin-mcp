@@ -2,7 +2,7 @@
 
 mod input;
 mod navigation;
-mod screenshot;
+pub mod screenshot;
 mod script;
 mod snapshot;
 

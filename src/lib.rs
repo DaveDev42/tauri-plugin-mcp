@@ -244,10 +244,18 @@ impl<R: Runtime + 'static> CommandHandler for IpcCommandHandler<R> {
             }
 
             "screenshot" => {
-                let screenshot_js = commands::SCREENSHOT_JS;
-                match self.eval_with_result(screenshot_js).await {
+                // Try native screenshot first, fallback to JS-based html2canvas
+                let pid = std::process::id();
+                match commands::screenshot::capture_window_by_pid(pid) {
                     Ok(result) => JsonRpcResponse::success(id, result),
-                    Err(e) => JsonRpcResponse::error(id, EVAL_ERROR, e),
+                    Err(e) => {
+                        tracing::warn!("Native screenshot failed: {}, falling back to JS", e);
+                        let screenshot_js = commands::SCREENSHOT_JS;
+                        match self.eval_with_result(screenshot_js).await {
+                            Ok(result) => JsonRpcResponse::success(id, result),
+                            Err(e) => JsonRpcResponse::error(id, EVAL_ERROR, e),
+                        }
+                    }
                 }
             }
 

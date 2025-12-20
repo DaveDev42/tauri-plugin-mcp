@@ -21,6 +21,8 @@ async-trait = "0.1"
 uuid = { version = "1", features = ["v4"] }
 base64 = "0.22"
 tauri = { version = "2", default-features = false, features = ["wry"] }
+xcap = "0.7"
+image = { version = "0.25", default-features = false, features = ["png"] }
 
 [target.'cfg(windows)'.dependencies]
 tokio = { version = "1", features = ["sync", "time", "rt", "io-util", "net"] }
