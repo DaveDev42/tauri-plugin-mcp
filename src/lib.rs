@@ -244,12 +244,37 @@ impl<R: Runtime + 'static> CommandHandler for IpcCommandHandler<R> {
             }
 
             "screenshot" => {
-                // Try native screenshot first, fallback to JS-based html2canvas
+                // Try native screenshot first with timeout, fallback to JS-based html2canvas
+                // Use spawn_blocking to avoid blocking the async runtime
                 let pid = std::process::id();
-                match commands::screenshot::capture_window_by_pid(pid) {
-                    Ok(result) => JsonRpcResponse::success(id, result),
-                    Err(e) => {
+                let native_task = tokio::task::spawn_blocking(move || {
+                    commands::screenshot::capture_window_by_pid(pid)
+                });
+
+                // Give native screenshot 5 seconds, then fall back to JS
+                let native_result =
+                    tokio::time::timeout(tokio::time::Duration::from_secs(5), native_task).await;
+
+                match native_result {
+                    Ok(Ok(Ok(result))) => JsonRpcResponse::success(id, result),
+                    Ok(Ok(Err(e))) => {
                         tracing::warn!("Native screenshot failed: {}, falling back to JS", e);
+                        let screenshot_js = commands::SCREENSHOT_JS;
+                        match self.eval_with_result(screenshot_js).await {
+                            Ok(result) => JsonRpcResponse::success(id, result),
+                            Err(e) => JsonRpcResponse::error(id, EVAL_ERROR, e),
+                        }
+                    }
+                    Ok(Err(e)) => {
+                        tracing::warn!("Screenshot task panicked: {}, falling back to JS", e);
+                        let screenshot_js = commands::SCREENSHOT_JS;
+                        match self.eval_with_result(screenshot_js).await {
+                            Ok(result) => JsonRpcResponse::success(id, result),
+                            Err(e) => JsonRpcResponse::error(id, EVAL_ERROR, e),
+                        }
+                    }
+                    Err(_) => {
+                        tracing::warn!("Native screenshot timed out, falling back to JS");
                         let screenshot_js = commands::SCREENSHOT_JS;
                         match self.eval_with_result(screenshot_js).await {
                             Ok(result) => JsonRpcResponse::success(id, result),
