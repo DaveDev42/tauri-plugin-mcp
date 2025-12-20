@@ -10,6 +10,25 @@ import { TauriManager } from './managers/tauri.js';
 import { SocketManager } from './managers/socket.js';
 import { toolSchemas, createToolHandlers, ToolName } from './tools/lifecycle.js';
 
+// Default essential tools (can be overridden via ESSENTIAL_TOOLS env var)
+const DEFAULT_ESSENTIAL_TOOLS = [
+  'app_status',
+  'launch_app',
+  'stop_app',
+  'snapshot',
+  'click',
+  'fill',
+  'screenshot',
+  'navigate',
+];
+
+// Parse ESSENTIAL_TOOLS from environment
+function getEssentialTools(): Set<string> | null {
+  const envValue = process.env.ESSENTIAL_TOOLS;
+  if (!envValue) return null; // null means show all tools
+  return new Set(envValue.split(',').map((t) => t.trim()).filter(Boolean));
+}
+
 export class McpServer {
   private server: Server;
   private tauriManager: TauriManager;
@@ -42,9 +61,19 @@ export class McpServer {
   }
 
   private setupHandlers() {
+    // Get essential tools filter (null = show all)
+    const essentialTools = getEssentialTools();
+
     // List tools handler
     this.server.setRequestHandler(ListToolsRequestSchema, async () => {
-      const tools: Tool[] = Object.values(toolSchemas).map((schema) => {
+      const allSchemas = Object.values(toolSchemas);
+
+      // Filter tools if ESSENTIAL_TOOLS is set
+      const filteredSchemas = essentialTools
+        ? allSchemas.filter((schema) => essentialTools.has(schema.name))
+        : allSchemas;
+
+      const tools: Tool[] = filteredSchemas.map((schema) => {
         const properties: Record<string, object> = {};
         const required: string[] = [];
 
