@@ -307,6 +307,7 @@ async fn register_bridge<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, Arc<McpState>>,
 ) -> Result<(), String> {
+    eprintln!("[tauri-plugin-mcp] JS bridge registered!");
     info!("JS bridge registered");
     state.set_bridge_ready(true);
 

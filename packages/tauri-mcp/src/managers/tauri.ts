@@ -158,9 +158,13 @@ export class TauriManager {
   }
 
   /**
-   * Get the socket path - uses detected path from Rust logs on Windows
+   * Get the socket path - uses appDir where the Tauri app actually runs
+   * On Windows, uses detected path from Rust logs
    */
   getSocketPath(): string {
+    // Use appDir instead of projectRoot - this is where Rust plugin creates the socket
+    const socketDir = this.appConfig?.appDir ?? this.projectRoot;
+
     if (process.platform === 'win32') {
       // Use detected pipe path from Rust plugin logs if available
       if (this.detectedPipePath) {
@@ -174,8 +178,8 @@ export class TauriManager {
       console.error('[tauri-mcp] Warning: pipe path not yet detected');
       return '\\\\.\\pipe\\tauri-mcp-unknown';
     }
-    // Unix socket file in project root
-    return path.join(this.projectRoot, SOCKET_FILE_NAME);
+    // Unix socket file in app directory (where Rust plugin runs)
+    return path.join(socketDir, SOCKET_FILE_NAME);
   }
 
   /**
@@ -255,7 +259,15 @@ export class TauriManager {
   async launch(options: LaunchOptions = {}): Promise<{ message: string; port: number }> {
     const waitForReady = options.wait_for_ready ?? true;
     const timeoutSecs = options.timeout_secs ?? 60;
-    const features = options.features ?? [];
+    // Handle features as string or array (MCP may pass string)
+    let features: string[] = [];
+    if (options.features) {
+      if (Array.isArray(options.features)) {
+        features = options.features;
+      } else if (typeof options.features === 'string') {
+        features = (options.features as string).split(',').map(f => f.trim()).filter(Boolean);
+      }
+    }
     const devtools = options.devtools ?? false;
 
     if (!this.appConfig) {
@@ -285,12 +297,14 @@ export class TauriManager {
       tauriArgs.push('--features', features.join(','));
     }
     console.error(`[tauri-mcp] Command: pnpm ${tauriArgs.join(' ')}`);
+    console.error(`[tauri-mcp] Socket will be at: ${this.getSocketPath()}`);
     this.process = spawn('pnpm', tauriArgs, {
       cwd: this.appConfig.appDir,
       stdio: ['ignore', 'pipe', 'pipe'],
       env: {
         ...process.env,
-        TAURI_MCP_PROJECT_ROOT: this.projectRoot,
+        // Use appDir as project root for Rust plugin - this is where socket will be created
+        TAURI_MCP_PROJECT_ROOT: this.appConfig.appDir,
         TAURI_MCP_DEVTOOLS: devtools ? '1' : '',
         VITE_PORT: this.vitePort.toString(),
       },
