@@ -421,16 +421,15 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             // Create IPC command handler
             let handler = Arc::new(IpcCommandHandler::new(app.clone(), state));
 
-            // Set handler on debug server
+            // Set handler first, then start the debug server
+            // This avoids race condition where server accepts connections before handler is set
             let server = Arc::clone(&debug_server);
             tauri::async_runtime::spawn(async move {
+                // Step 1: Set handler (must complete before accepting connections)
                 server.set_handler(handler).await;
                 eprintln!("[tauri-plugin-mcp] Handler set on debug server");
-            });
 
-            // Start the debug server
-            let server = Arc::clone(&debug_server);
-            tauri::async_runtime::spawn(async move {
+                // Step 2: Start the debug server (now handler is guaranteed to be set)
                 eprintln!("[tauri-plugin-mcp] Starting debug server...");
                 match server.start().await {
                     Ok(()) => eprintln!("[tauri-plugin-mcp] Debug server started successfully"),

@@ -27,6 +27,8 @@ export type SocketPathProvider = () => string;
 export class SocketManager {
   private projectRoot: string;
   private socketPathProvider: SocketPathProvider | null = null;
+  private static readonly MAX_RETRIES = 3;
+  private static readonly RETRY_DELAY_MS = 500;
 
   constructor(projectRoot?: string) {
     this.projectRoot = projectRoot ?? process.env.TAURI_PROJECT_ROOT ?? process.cwd();
@@ -65,7 +67,66 @@ export class SocketManager {
     return fs.existsSync(socketPath);
   }
 
+  /**
+   * Verify connection by sending a ping command
+   * More reliable than just checking socket file existence
+   */
+  async verifyConnection(): Promise<boolean> {
+    try {
+      const result = await this.sendCommandOnce('ping', {}) as { pong?: boolean };
+      return result?.pong === true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Send command with retry logic for transient failures
+   */
   async sendCommand(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
+    let lastError: Error | null = null;
+
+    for (let attempt = 1; attempt <= SocketManager.MAX_RETRIES; attempt++) {
+      try {
+        return await this.sendCommandOnce(method, params);
+      } catch (error) {
+        lastError = error as Error;
+        const isRetryable = this.isRetryableError(lastError);
+
+        if (!isRetryable || attempt === SocketManager.MAX_RETRIES) {
+          throw lastError;
+        }
+
+        console.error(`[tauri-mcp] Command failed (attempt ${attempt}/${SocketManager.MAX_RETRIES}): ${lastError.message}`);
+        await this.sleep(SocketManager.RETRY_DELAY_MS * attempt); // Exponential backoff
+      }
+    }
+
+    throw lastError;
+  }
+
+  /**
+   * Check if an error is retryable (transient connection issues)
+   */
+  private isRetryableError(error: Error): boolean {
+    const message = error.message.toLowerCase();
+    return (
+      message.includes('econnrefused') ||
+      message.includes('econnreset') ||
+      message.includes('epipe') ||
+      message.includes('connection closed') ||
+      message.includes('starting up')
+    );
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  /**
+   * Send a single command without retry
+   */
+  private async sendCommandOnce(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
     const socketPath = this.getSocketPath();
 
     return new Promise((resolve, reject) => {
