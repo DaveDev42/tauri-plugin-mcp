@@ -258,6 +258,7 @@ return {{ success: true }};
 }
 
 /// JavaScript code to fill an input by CSS selector
+/// Uses native value setter to properly trigger React's synthetic event system
 pub fn fill_js(selector: &str, value: &str) -> String {
     format!(
         r#"
@@ -265,9 +266,28 @@ const el = document.querySelector({selector});
 if (!el) {{
     return {{ success: false, error: 'Element not found: {raw_selector}' }};
 }}
-el.value = {value};
-el.dispatchEvent(new Event('input', {{ bubbles: true }}));
+
+// Get the native value setter to bypass React's synthetic event system
+// This is required for React controlled inputs to properly update state
+const tagName = el.tagName.toLowerCase();
+const prototype = tagName === 'textarea' ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+const nativeValueSetter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
+
+if (nativeValueSetter) {{
+    nativeValueSetter.call(el, {value});
+}} else {{
+    el.value = {value};
+}}
+
+// Dispatch input event with bubbles to trigger React's onChange
+const inputEvent = new Event('input', {{ bubbles: true, cancelable: true }});
+// React 16+ uses this property to track the event
+Object.defineProperty(inputEvent, 'simulated', {{ value: true }});
+el.dispatchEvent(inputEvent);
+
+// Also dispatch change event for completeness
 el.dispatchEvent(new Event('change', {{ bubbles: true }}));
+
 return {{ success: true }};
 "#,
         selector = serde_json::to_string(selector).unwrap(),
@@ -277,6 +297,7 @@ return {{ success: true }};
 }
 
 /// JavaScript code to fill an input by ref number
+/// Uses native value setter to properly trigger React's synthetic event system
 pub fn fill_ref_js(ref_num: u32, value: &str) -> String {
     format!(
         r#"
@@ -290,9 +311,28 @@ if (!el) {{
 }}
 el.scrollIntoView({{ behavior: 'instant', block: 'center' }});
 el.focus();
-el.value = {value};
-el.dispatchEvent(new Event('input', {{ bubbles: true }}));
+
+// Get the native value setter to bypass React's synthetic event system
+// This is required for React controlled inputs to properly update state
+const tagName = el.tagName.toLowerCase();
+const prototype = tagName === 'textarea' ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+const nativeValueSetter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
+
+if (nativeValueSetter) {{
+    nativeValueSetter.call(el, {value});
+}} else {{
+    el.value = {value};
+}}
+
+// Dispatch input event with bubbles to trigger React's onChange
+const inputEvent = new Event('input', {{ bubbles: true, cancelable: true }});
+// React 16+ uses this property to track the event
+Object.defineProperty(inputEvent, 'simulated', {{ value: true }});
+el.dispatchEvent(inputEvent);
+
+// Also dispatch change event for completeness
 el.dispatchEvent(new Event('change', {{ bubbles: true }}));
+
 return {{ success: true }};
 "#,
         ref_num = ref_num,
