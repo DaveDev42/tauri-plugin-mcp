@@ -256,9 +256,24 @@ export class TauriManager {
     });
   }
 
+  /**
+   * Check if Rust build cache exists (incremental build will be fast)
+   */
+  private hasBuildCache(): boolean {
+    if (!this.appConfig) return false;
+
+    const targetDir = path.join(this.appConfig.appDir, 'src-tauri', 'target', 'debug');
+    const binaryPath = process.platform === 'win32'
+      ? path.join(targetDir, `${this.appConfig.binaryName}.exe`)
+      : path.join(targetDir, this.appConfig.binaryName);
+
+    return fs.existsSync(binaryPath);
+  }
+
   async launch(options: LaunchOptions = {}): Promise<{ message: string; port: number }> {
     const waitForReady = options.wait_for_ready ?? true;
-    const timeoutSecs = options.timeout_secs ?? 60;
+    const devtools = options.devtools ?? false;
+
     // Handle features as string or array (MCP may pass string)
     let features: string[] = [];
     if (options.features) {
@@ -268,7 +283,12 @@ export class TauriManager {
         features = (options.features as string).split(',').map(f => f.trim()).filter(Boolean);
       }
     }
-    const devtools = options.devtools ?? false;
+
+    // Always add dev-tools feature for MCP plugin to work
+    // (devtools option controls whether to open devtools, but feature is always needed)
+    if (!features.includes('dev-tools')) {
+      features.push('dev-tools');
+    }
 
     if (!this.appConfig) {
       throw new Error('No Tauri app detected. Make sure src-tauri/Cargo.toml exists.');
@@ -277,6 +297,14 @@ export class TauriManager {
     if (this.process) {
       throw new Error('App is already running. Stop it first.');
     }
+
+    // Determine timeout based on build cache existence
+    // Fresh build: 300 seconds (5 minutes), Incremental build: 60 seconds
+    const hasCachedBuild = this.hasBuildCache();
+    const defaultTimeout = hasCachedBuild ? 60 : 300;
+    const timeoutSecs = options.timeout_secs ?? defaultTimeout;
+
+    console.error(`[tauri-mcp] Build cache ${hasCachedBuild ? 'found' : 'not found'}, using ${timeoutSecs}s timeout`);
 
     // Reset detected pipe path
     this.detectedPipePath = null;
@@ -364,9 +392,15 @@ export class TauriManager {
         : this.isSocketReady();
 
       if (socketReady) {
-        // Give it a moment to fully initialize
-        await this.sleep(500);
-        return;
+        // Socket exists, now verify the app is actually ready by sending a ping
+        // This ensures: 1) Handler is set, 2) JS Bridge is initialized
+        const pingSuccess = await this.verifyAppReady();
+        if (pingSuccess) {
+          console.error('[tauri-mcp] App is fully ready (ping successful)');
+          return;
+        }
+        // Ping failed, app not fully ready yet
+        console.error('[tauri-mcp] Socket ready but ping failed, waiting...');
       }
 
       await this.sleep(500);
@@ -374,6 +408,64 @@ export class TauriManager {
 
     const logs = this.getRecentLogs();
     throw new Error(`App did not become ready within ${timeoutSecs} seconds\n\n${logs}`);
+  }
+
+  /**
+   * Verify the app is fully ready by sending a ping command
+   * Returns true if ping succeeds, false otherwise
+   */
+  private async verifyAppReady(): Promise<boolean> {
+    const socketPath = this.getSocketPath();
+
+    return new Promise((resolve) => {
+      const client = net.createConnection(socketPath, () => {
+        const request = {
+          jsonrpc: '2.0',
+          id: Date.now(),
+          method: 'ping',
+          params: {},
+        };
+
+        client.write(JSON.stringify(request) + '\n');
+      });
+
+      let data = '';
+
+      client.on('data', (chunk) => {
+        data += chunk.toString();
+        try {
+          const response = JSON.parse(data);
+          client.end();
+          // Check if ping was successful (pong: true)
+          if (response.result?.pong === true) {
+            resolve(true);
+          } else if (response.error) {
+            // Handler returned an error (e.g., not initialized)
+            resolve(false);
+          } else {
+            resolve(false);
+          }
+        } catch {
+          // Incomplete JSON, wait for more data
+        }
+      });
+
+      client.on('error', () => {
+        resolve(false);
+      });
+
+      client.on('close', () => {
+        if (!data) {
+          resolve(false);
+        }
+      });
+
+      // Timeout after 2 seconds
+      setTimeout(() => {
+        client.destroy();
+        resolve(false);
+      }, 2000);
+    });
   }
 
   private getRecentLogs(): string {
