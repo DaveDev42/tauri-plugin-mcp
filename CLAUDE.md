@@ -67,6 +67,7 @@ Claude Code <-> MCP Server (Node.js) <-> IPC Socket <-> Tauri Plugin (Rust) <-> 
 | `screenshot` | `window?: string` | Returns base64 JPEG via html2canvas |
 | `evaluate_script` | `script: string`, `window?: string` | Executes JS, returns result |
 | `get_logs` | `filter?: string[]`, `limit?: number`, `clear?: boolean`, `window?: string` | Unified log access |
+| `get_restart_events` | `limit?: number`, `clear?: boolean`, `window?: string` | Get recent app restart/reload events with triggering files |
 
 ### Multi-Window Support
 

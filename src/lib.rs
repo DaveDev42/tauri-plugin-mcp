@@ -436,6 +436,19 @@ impl<R: Runtime + 'static> CommandHandler for IpcCommandHandler<R> {
                 }
             }
 
+            "get_hmr_updates" => {
+                let clear = request
+                    .params
+                    .get("clear")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                let js = commands::get_hmr_updates_js(clear);
+                match self.eval_with_result_on_window(window_label, &js).await {
+                    Ok(result) => JsonRpcResponse::success(id, result),
+                    Err(e) => JsonRpcResponse::error(id, EVAL_ERROR, e),
+                }
+            }
+
             _ => JsonRpcResponse::error(
                 id,
                 METHOD_NOT_FOUND,

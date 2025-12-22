@@ -67,6 +67,33 @@ interface BuildLogEntry {
 }
 
 /**
+ * HMR update entry - records why app was hot-reloaded
+ */
+interface HmrUpdateEntry {
+  type: 'hmr-update' | 'full-reload';
+  files: string[];
+  timestamp: number;
+}
+
+/**
+ * Vite HMR payload types
+ */
+interface ViteHmrUpdatePayload {
+  type: 'update';
+  updates: Array<{
+    type: 'js-update' | 'css-update';
+    path: string;
+    acceptedPath: string;
+    timestamp: number;
+  }>;
+}
+
+interface ViteHmrFullReloadPayload {
+  type: 'full-reload';
+  path?: string;
+}
+
+/**
  * MCP Bridge state
  */
 interface McpBridgeState {
@@ -83,6 +110,7 @@ declare global {
     __MCP_CONSOLE_LOGS__: ConsoleLogEntry[];
     __MCP_NETWORK_LOGS__: NetworkLogEntry[];
     __MCP_BUILD_LOGS__: BuildLogEntry[];
+    __MCP_HMR_UPDATES__: HmrUpdateEntry[];
     __MCP_HMR_STATUS__: 'connected' | 'disconnected' | 'unknown';
     __MCP_HMR_LAST_SUCCESS__: number | null;
   }
@@ -130,6 +158,7 @@ export async function initMcpBridge(): Promise<void> {
   window.__MCP_CONSOLE_LOGS__ = window.__MCP_CONSOLE_LOGS__ || [];
   window.__MCP_NETWORK_LOGS__ = window.__MCP_NETWORK_LOGS__ || [];
   window.__MCP_BUILD_LOGS__ = window.__MCP_BUILD_LOGS__ || [];
+  window.__MCP_HMR_UPDATES__ = window.__MCP_HMR_UPDATES__ || [];
   window.__MCP_HMR_STATUS__ = window.__MCP_HMR_STATUS__ || 'unknown';
   window.__MCP_HMR_LAST_SUCCESS__ = window.__MCP_HMR_LAST_SUCCESS__ || null;
 
@@ -412,7 +441,7 @@ export function isBridgeInitialized(): boolean {
 }
 
 /**
- * Set up Vite HMR monitoring to capture build errors and connection status
+ * Set up Vite HMR monitoring to capture build errors, connection status, and update reasons
  */
 function setupViteHMRMonitoring(): void {
   // Check if we're in Vite dev mode with HMR support
@@ -432,6 +461,47 @@ function setupViteHMRMonitoring(): void {
   hot.on('vite:ws:disconnect', () => {
     window.__MCP_HMR_STATUS__ = 'disconnected';
     console.log('[tauri-plugin-mcp] HMR WebSocket disconnected');
+  });
+
+  // Capture HMR update - records which files triggered the hot reload
+  hot.on('vite:beforeUpdate', (payload: unknown) => {
+    const data = payload as ViteHmrUpdatePayload;
+    if (data.updates && data.updates.length > 0) {
+      const files = data.updates.map((u) => u.path);
+      const uniqueFiles = [...new Set(files)];
+
+      window.__MCP_HMR_UPDATES__.push({
+        type: 'hmr-update',
+        files: uniqueFiles,
+        timestamp: Date.now(),
+      });
+
+      // Keep only last N entries
+      if (window.__MCP_HMR_UPDATES__.length > MAX_LOG_ENTRIES) {
+        window.__MCP_HMR_UPDATES__.shift();
+      }
+
+      console.log(`[tauri-plugin-mcp] HMR update triggered by: ${uniqueFiles.join(', ')}`);
+    }
+  });
+
+  // Capture full reload - when HMR can't handle the change
+  hot.on('vite:beforeFullReload', (payload: unknown) => {
+    const data = payload as ViteHmrFullReloadPayload;
+    const files = data.path ? [data.path] : ['unknown'];
+
+    window.__MCP_HMR_UPDATES__.push({
+      type: 'full-reload',
+      files,
+      timestamp: Date.now(),
+    });
+
+    // Keep only last N entries
+    if (window.__MCP_HMR_UPDATES__.length > MAX_LOG_ENTRIES) {
+      window.__MCP_HMR_UPDATES__.shift();
+    }
+
+    console.log(`[tauri-plugin-mcp] Full reload triggered by: ${files.join(', ')}`);
   });
 
   // Track successful HMR updates

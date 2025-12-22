@@ -49,6 +49,12 @@ export interface LogEntry {
   };
 }
 
+export interface RustRebuildEvent {
+  type: 'rust-rebuild';
+  file: string;
+  timestamp: number;
+}
+
 const SOCKET_FILE_NAME = '.tauri-mcp.sock';
 
 export class TauriManager {
@@ -59,6 +65,7 @@ export class TauriManager {
   private vitePort: number;
   private outputBuffer: string[] = [];
   private detectedPipePath: string | null = null;
+  private rustRebuildEvents: RustRebuildEvent[] = [];
 
   constructor(projectRoot?: string) {
     this.projectRoot = projectRoot ?? process.env.TAURI_PROJECT_ROOT ?? process.cwd();
@@ -394,6 +401,8 @@ export class TauriManager {
       this.outputBuffer.push(`[stdout] ${line}`);
       // Keep only last 100 lines
       if (this.outputBuffer.length > 100) this.outputBuffer.shift();
+      // Parse Rust rebuild trigger
+      this.parseRustRebuildTrigger(line);
     });
 
     this.process.stderr?.on('data', (data) => {
@@ -401,6 +410,8 @@ export class TauriManager {
       console.error(`[tauri stderr] ${line}`);
       this.outputBuffer.push(`[stderr] ${line}`);
       if (this.outputBuffer.length > 100) this.outputBuffer.shift();
+      // Parse Rust rebuild trigger
+      this.parseRustRebuildTrigger(line);
     });
 
     this.process.on('exit', (code) => {
@@ -826,5 +837,44 @@ export class TauriManager {
     }
 
     return { entries, summary };
+  }
+
+  /**
+   * Parse Rust rebuild trigger from tauri dev output
+   * Looks for: "File src-tauri/src/main.rs changed. Rebuilding application..."
+   */
+  private parseRustRebuildTrigger(line: string): void {
+    // Match: "File <path> changed. Rebuilding application..."
+    // Also match: "Info File <path> changed. Rebuilding application..."
+    const match = line.match(/(?:Info\s+)?File\s+(.+?)\s+changed\.\s*Rebuilding/i);
+    if (match) {
+      const file = match[1];
+      this.rustRebuildEvents.push({
+        type: 'rust-rebuild',
+        file,
+        timestamp: Date.now(),
+      });
+
+      // Keep only last 50 events
+      if (this.rustRebuildEvents.length > 50) {
+        this.rustRebuildEvents.shift();
+      }
+
+      console.error(`[tauri-mcp] Rust rebuild triggered by: ${file}`);
+    }
+  }
+
+  /**
+   * Get Rust rebuild events
+   * @param limit Maximum number of events to return (default: all)
+   * @param clear Whether to clear the events after reading (default: false)
+   */
+  getRustRebuildEvents(options: { limit?: number; clear?: boolean } = {}): RustRebuildEvent[] {
+    const { limit, clear = false } = options;
+    const events = limit ? this.rustRebuildEvents.slice(-limit) : [...this.rustRebuildEvents];
+    if (clear) {
+      this.rustRebuildEvents = [];
+    }
+    return events;
   }
 }

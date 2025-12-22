@@ -109,6 +109,15 @@ export const toolSchemas = {
       window: z.string().optional().describe('Window label for frontend logs (default: focused window)'),
     }),
   },
+  get_restart_events: {
+    name: 'get_restart_events',
+    description: 'Get recent app restart/reload events with the files that triggered them. Includes Rust rebuilds (backend) and HMR updates (frontend).',
+    inputSchema: z.object({
+      limit: z.number().optional().default(10).describe('Max events'),
+      clear: z.boolean().optional().default(false).describe('Clear events after reading'),
+      window: z.string().optional().describe('Window label for frontend HMR events (default: focused window)'),
+    }),
+  },
 };
 
 export type ToolName = keyof typeof toolSchemas;
@@ -269,6 +278,61 @@ export function createToolHandlers(tauriManager: TauriManager, socketManager: So
           {
             type: 'text' as const,
             text: result,
+          },
+        ],
+      };
+    },
+
+    get_restart_events: async (args: { limit?: number; clear?: boolean; window?: string }) => {
+      const limit = args.limit ?? 10;
+      const clear = args.clear ?? false;
+      const windowLabel = args.window;
+
+      // Get Rust rebuild events from TauriManager
+      const rustEvents = tauriManager.getRustRebuildEvents({ limit, clear });
+
+      // Get frontend HMR updates from socket if app is running
+      let frontendEvents: Array<{ type: 'hmr-update' | 'full-reload'; files: string[]; timestamp: number }> = [];
+      try {
+        const hmrResult = await socketManager.getHmrUpdates(clear, windowLabel);
+        frontendEvents = hmrResult.updates ?? [];
+      } catch {
+        // App not running or socket not available
+      }
+
+      // Merge and format all events
+      const allEvents = [
+        ...rustEvents.map(e => ({
+          type: e.type,
+          files: [e.file],
+          timestamp: e.timestamp,
+          source: 'backend' as const,
+        })),
+        ...frontendEvents.map(e => ({
+          type: e.type,
+          files: e.files,
+          timestamp: e.timestamp,
+          source: 'frontend' as const,
+        })),
+      ];
+
+      // Sort by timestamp (most recent first) and limit
+      allEvents.sort((a, b) => b.timestamp - a.timestamp);
+      const limitedEvents = allEvents.slice(0, limit);
+
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify({
+              events: limitedEvents,
+              summary: {
+                total: limitedEvents.length,
+                rustRebuilds: limitedEvents.filter(e => e.type === 'rust-rebuild').length,
+                hmrUpdates: limitedEvents.filter(e => e.type === 'hmr-update').length,
+                fullReloads: limitedEvents.filter(e => e.type === 'full-reload').length,
+              },
+            }, null, 2),
           },
         ],
       };

@@ -479,6 +479,21 @@ return {{ consoleLogs, buildLogs, networkLogs, hmrStatus }};
     )
 }
 
+/// JavaScript code to get HMR update events (files that triggered hot reload)
+pub fn get_hmr_updates_js(clear: bool) -> String {
+    format!(
+        r#"
+const updates = window.__MCP_HMR_UPDATES__ || [];
+const result = {{ updates: [...updates] }};
+if ({clear}) {{
+    window.__MCP_HMR_UPDATES__ = [];
+}}
+return result;
+"#,
+        clear = if clear { "true" } else { "false" }
+    )
+}
+
 /// JavaScript code to take a screenshot
 pub const SCREENSHOT_JS: &str = r#"
     // Load html2canvas if not already loaded

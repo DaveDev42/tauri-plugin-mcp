@@ -380,4 +380,16 @@ export class SocketManager {
       hmrStatus: { connected: boolean; status: string; lastSuccess: number | null };
     };
   }
+
+  async getHmrUpdates(clear?: boolean, windowLabel?: string): Promise<{
+    updates: Array<{ type: 'hmr-update' | 'full-reload'; files: string[]; timestamp: number }>;
+  }> {
+    const params: Record<string, unknown> = { clear: clear ?? false };
+    if (windowLabel) params.window = windowLabel;
+
+    const result = await this.sendCommand('get_hmr_updates', params);
+    return result as {
+      updates: Array<{ type: 'hmr-update' | 'full-reload'; files: string[]; timestamp: number }>;
+    };
+  }
 }
