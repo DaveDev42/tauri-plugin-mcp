@@ -24,10 +24,24 @@ export const toolSchemas = {
     description: 'Stop app',
     inputSchema: z.object({}),
   },
+  list_windows: {
+    name: 'list_windows',
+    description: 'List all open windows with their labels, titles, and focus state',
+    inputSchema: z.object({}),
+  },
+  focus_window: {
+    name: 'focus_window',
+    description: 'Focus a specific window by label',
+    inputSchema: z.object({
+      window: z.string().describe('Window label to focus'),
+    }),
+  },
   snapshot: {
     name: 'snapshot',
     description: 'Get accessibility tree (returns ref numbers for click/fill)',
-    inputSchema: z.object({}),
+    inputSchema: z.object({
+      window: z.string().optional().describe('Window label (default: focused window)'),
+    }),
   },
   click: {
     name: 'click',
@@ -35,6 +49,7 @@ export const toolSchemas = {
     inputSchema: z.object({
       ref: z.number().optional().describe('Ref from snapshot'),
       selector: z.string().optional().describe('CSS selector'),
+      window: z.string().optional().describe('Window label (default: focused window)'),
     }),
   },
   fill: {
@@ -44,6 +59,7 @@ export const toolSchemas = {
       ref: z.number().optional().describe('Ref from snapshot'),
       selector: z.string().optional().describe('CSS selector'),
       value: z.string().describe('Value'),
+      window: z.string().optional().describe('Window label (default: focused window)'),
     }),
   },
   press_key: {
@@ -51,6 +67,7 @@ export const toolSchemas = {
     description: 'Press key',
     inputSchema: z.object({
       key: z.string().describe('Key name'),
+      window: z.string().optional().describe('Window label (default: focused window)'),
     }),
   },
   evaluate_script: {
@@ -58,18 +75,22 @@ export const toolSchemas = {
     description: 'Run JS in webview',
     inputSchema: z.object({
       script: z.string().describe('JS code'),
+      window: z.string().optional().describe('Window label (default: focused window)'),
     }),
   },
   screenshot: {
     name: 'screenshot',
     description: 'Take screenshot',
-    inputSchema: z.object({}),
+    inputSchema: z.object({
+      window: z.string().optional().describe('Window label (default: focused window)'),
+    }),
   },
   navigate: {
     name: 'navigate',
     description: 'Navigate to URL',
     inputSchema: z.object({
       url: z.string().describe('URL'),
+      window: z.string().optional().describe('Window label (default: focused window)'),
     }),
   },
   get_logs: {
@@ -85,6 +106,7 @@ export const toolSchemas = {
       ])).optional().default([]).describe('Filters to apply (empty = all logs)'),
       limit: z.number().optional().default(50).describe('Max entries'),
       clear: z.boolean().optional().default(false).describe('Clear logs after reading'),
+      window: z.string().optional().describe('Window label for frontend logs (default: focused window)'),
     }),
   },
 };
@@ -137,8 +159,20 @@ export function createToolHandlers(tauriManager: TauriManager, socketManager: So
       };
     },
 
-    snapshot: async () => {
-      const result = await socketManager.snapshot();
+    list_windows: async () => {
+      const result = await socketManager.listWindows();
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify(result, null, 2),
+          },
+        ],
+      };
+    },
+
+    focus_window: async (args: { window: string }) => {
+      const result = await socketManager.focusWindow(args.window);
       return {
         content: [
           {
@@ -149,7 +183,19 @@ export function createToolHandlers(tauriManager: TauriManager, socketManager: So
       };
     },
 
-    click: async (args: { ref?: number; selector?: string }) => {
+    snapshot: async (args: { window?: string }) => {
+      const result = await socketManager.snapshot(args);
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: result,
+          },
+        ],
+      };
+    },
+
+    click: async (args: { ref?: number; selector?: string; window?: string }) => {
       if (!args.ref && !args.selector) {
         throw new Error('Either ref or selector must be provided');
       }
@@ -164,7 +210,7 @@ export function createToolHandlers(tauriManager: TauriManager, socketManager: So
       };
     },
 
-    fill: async (args: { ref?: number; selector?: string; value: string }) => {
+    fill: async (args: { ref?: number; selector?: string; value: string; window?: string }) => {
       if (!args.ref && !args.selector) {
         throw new Error('Either ref or selector must be provided');
       }
@@ -179,8 +225,8 @@ export function createToolHandlers(tauriManager: TauriManager, socketManager: So
       };
     },
 
-    press_key: async (args: { key: string }) => {
-      const result = await socketManager.pressKey(args.key);
+    press_key: async (args: { key: string; window?: string }) => {
+      const result = await socketManager.pressKey(args.key, args.window);
       return {
         content: [
           {
@@ -191,8 +237,8 @@ export function createToolHandlers(tauriManager: TauriManager, socketManager: So
       };
     },
 
-    evaluate_script: async (args: { script: string }) => {
-      const result = await socketManager.evaluateScript(args.script);
+    evaluate_script: async (args: { script: string; window?: string }) => {
+      const result = await socketManager.evaluateScript(args.script, args.window);
       return {
         content: [
           {
@@ -203,8 +249,8 @@ export function createToolHandlers(tauriManager: TauriManager, socketManager: So
       };
     },
 
-    screenshot: async () => {
-      const result = await socketManager.screenshot();
+    screenshot: async (args: { window?: string }) => {
+      const result = await socketManager.screenshot(args);
       return {
         content: [
           {
@@ -216,8 +262,8 @@ export function createToolHandlers(tauriManager: TauriManager, socketManager: So
       };
     },
 
-    navigate: async (args: { url: string }) => {
-      const result = await socketManager.navigate(args.url);
+    navigate: async (args: { url: string; window?: string }) => {
+      const result = await socketManager.navigate(args.url, args.window);
       return {
         content: [
           {
@@ -228,10 +274,11 @@ export function createToolHandlers(tauriManager: TauriManager, socketManager: So
       };
     },
 
-    get_logs: async (args: { filter?: string[]; limit?: number; clear?: boolean }) => {
+    get_logs: async (args: { filter?: string[]; limit?: number; clear?: boolean; window?: string }) => {
       const filters = args.filter ?? [];
       const limit = args.limit ?? 50;
       const clear = args.clear ?? false;
+      const windowLabel = args.window;
 
       // Parse filters into source and level filters
       const sourceFilters = new Set<string>();
@@ -284,7 +331,7 @@ export function createToolHandlers(tauriManager: TauriManager, socketManager: So
       } | null = null;
 
       try {
-        frontendLogs = await socketManager.getFrontendLogs(clear);
+        frontendLogs = await socketManager.getFrontendLogs(clear, windowLabel);
       } catch {
         // App not running or socket not available
       }

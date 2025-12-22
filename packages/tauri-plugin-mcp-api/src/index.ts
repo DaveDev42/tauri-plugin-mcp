@@ -1,4 +1,5 @@
 import { invoke, Channel } from '@tauri-apps/api/core';
+import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 
 // Original function references (preserved across HMR reloads)
 let originalConsole: Record<string, (...args: unknown[]) => void> | null = null;
@@ -78,6 +79,7 @@ declare global {
     __MCP_BRIDGE__: McpBridgeState;
     __MCP_EVAL__: (requestId: string, script: string) => Promise<void>;
     __MCP_REF_MAP__: Map<number, Element>;
+    __MCP_WINDOW_LABEL__: string;
     __MCP_CONSOLE_LOGS__: ConsoleLogEntry[];
     __MCP_NETWORK_LOGS__: NetworkLogEntry[];
     __MCP_BUILD_LOGS__: BuildLogEntry[];
@@ -114,6 +116,15 @@ export async function initMcpBridge(): Promise<void> {
 
   // Initialize ref map for accessibility tree
   window.__MCP_REF_MAP__ = new Map();
+
+  // Get and store window label for multi-window support
+  try {
+    const currentWindow = getCurrentWebviewWindow();
+    window.__MCP_WINDOW_LABEL__ = currentWindow.label;
+  } catch {
+    // Fallback if webviewWindow API is not available
+    window.__MCP_WINDOW_LABEL__ = 'main';
+  }
 
   // Initialize log storage (preserve existing logs across HMR reloads)
   window.__MCP_CONSOLE_LOGS__ = window.__MCP_CONSOLE_LOGS__ || [];

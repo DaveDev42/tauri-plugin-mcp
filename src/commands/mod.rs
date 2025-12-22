@@ -223,6 +223,7 @@ pub const SNAPSHOT_JS: &str = r#"
 
     // Include warning if there are build errors
     const result = {
+        window: window.__MCP_WINDOW_LABEL__ || 'main',
         url: window.location.href,
         title: document.title,
         snapshot: snapshot,

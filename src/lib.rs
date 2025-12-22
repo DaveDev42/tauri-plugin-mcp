@@ -91,13 +91,49 @@ impl<R: Runtime> IpcCommandHandler<R> {
         Self { app, state }
     }
 
-    /// Execute JavaScript via IPC bridge and wait for result
-    async fn eval_with_result(&self, script: &str) -> Result<serde_json::Value, String> {
+    /// Get webview by label, or return focused/first window as fallback
+    fn get_webview(
+        &self,
+        window_label: Option<&str>,
+    ) -> Result<tauri::WebviewWindow<R>, String> {
+        let webviews = self.app.webview_windows();
+
+        if let Some(label) = window_label {
+            // Explicit window label specified
+            webviews
+                .get(label)
+                .cloned()
+                .ok_or_else(|| format!("Window '{}' not found", label))
+        } else {
+            // Try focused window first
+            for (_, window) in &webviews {
+                if window.is_focused().unwrap_or(false) {
+                    return Ok(window.clone());
+                }
+            }
+            // Fallback to first window
+            webviews
+                .values()
+                .next()
+                .cloned()
+                .ok_or_else(|| "No webview available".to_string())
+        }
+    }
+
+    /// Execute JavaScript via IPC bridge on a specific window and wait for result
+    async fn eval_with_result_on_window(
+        &self,
+        window_label: Option<&str>,
+        script: &str,
+    ) -> Result<serde_json::Value, String> {
         if !self.state.is_bridge_ready() {
             return Err(
                 "MCP bridge not initialized. Call initMcpBridge() in your frontend.".to_string(),
             );
         }
+
+        // Get target window
+        let window = self.get_webview(window_label)?;
 
         // Generate unique request ID
         let request_id = uuid::Uuid::new_v4().to_string();
@@ -112,7 +148,6 @@ impl<R: Runtime> IpcCommandHandler<R> {
         }
 
         // Call JS eval function via webview.eval
-        // The JS bridge will invoke plugin:mcp|eval_result when done
         let escaped_script = script
             .replace('\\', "\\\\")
             .replace('\'', "\\'")
@@ -122,19 +157,10 @@ impl<R: Runtime> IpcCommandHandler<R> {
             request_id, escaped_script
         );
 
-        // Execute on the first available webview
-        let webviews = self.app.webview_windows();
-        if let Some((_, window)) = webviews.iter().next() {
-            if let Err(e) = window.eval(&js) {
-                // Remove pending request on error
-                let mut pending = self.state.pending.lock().await;
-                pending.remove(&request_id);
-                return Err(format!("Failed to execute script: {}", e));
-            }
-        } else {
+        if let Err(e) = window.eval(&js) {
             let mut pending = self.state.pending.lock().await;
             pending.remove(&request_id);
-            return Err("No webview available".to_string());
+            return Err(format!("Failed to execute script: {}", e));
         }
 
         // Wait for result with timeout
@@ -143,27 +169,79 @@ impl<R: Runtime> IpcCommandHandler<R> {
             Ok(Ok(result)) => result,
             Ok(Err(_)) => Err("Channel closed unexpectedly".to_string()),
             Err(_) => {
-                // Remove pending request on timeout
                 let mut pending = self.state.pending.lock().await;
                 pending.remove(&request_id);
                 Err("Timeout waiting for eval result".to_string())
             }
         }
     }
+
 }
 
 #[async_trait::async_trait]
 impl<R: Runtime + 'static> CommandHandler for IpcCommandHandler<R> {
     async fn handle_request(&self, request: JsonRpcRequest) -> JsonRpcResponse {
         let id = request.id.clone();
+        // Extract optional window parameter for multi-window support
+        let window_label = request.params.get("window").and_then(|v| v.as_str());
 
         match request.method.as_str() {
             "ping" => JsonRpcResponse::success(id, serde_json::json!({"pong": true})),
 
-            "snapshot" => match self.eval_with_result(commands::SNAPSHOT_JS).await {
-                Ok(result) => JsonRpcResponse::success(id, result),
-                Err(e) => JsonRpcResponse::error(id, EVAL_ERROR, e),
-            },
+            "list_windows" => {
+                let webviews = self.app.webview_windows();
+                let windows: Vec<serde_json::Value> = webviews
+                    .iter()
+                    .map(|(label, window)| {
+                        let size = window.inner_size().ok();
+                        serde_json::json!({
+                            "label": label,
+                            "title": window.title().unwrap_or_default(),
+                            "focused": window.is_focused().unwrap_or(false),
+                            "visible": window.is_visible().unwrap_or(false),
+                            "size": size.map(|s| serde_json::json!({
+                                "width": s.width,
+                                "height": s.height
+                            }))
+                        })
+                    })
+                    .collect();
+                JsonRpcResponse::success(id, serde_json::json!({ "windows": windows }))
+            }
+
+            "focus_window" => {
+                let label = match window_label {
+                    Some(l) => l,
+                    None => {
+                        return JsonRpcResponse::error(
+                            id,
+                            EVAL_ERROR,
+                            "Window label required".to_string(),
+                        )
+                    }
+                };
+                let webviews = self.app.webview_windows();
+                if let Some(window) = webviews.get(label) {
+                    match window.set_focus() {
+                        Ok(_) => {
+                            JsonRpcResponse::success(id, serde_json::json!({ "focused": label }))
+                        }
+                        Err(e) => JsonRpcResponse::error(id, EVAL_ERROR, e.to_string()),
+                    }
+                } else {
+                    JsonRpcResponse::error(id, EVAL_ERROR, format!("Window '{}' not found", label))
+                }
+            }
+
+            "snapshot" => {
+                match self
+                    .eval_with_result_on_window(window_label, commands::SNAPSHOT_JS)
+                    .await
+                {
+                    Ok(result) => JsonRpcResponse::success(id, result),
+                    Err(e) => JsonRpcResponse::error(id, EVAL_ERROR, e),
+                }
+            }
 
             "click" => {
                 let js = if let Some(ref_num) = request.params.get("ref").and_then(|v| v.as_u64()) {
@@ -176,7 +254,7 @@ impl<R: Runtime + 'static> CommandHandler for IpcCommandHandler<R> {
                         .unwrap_or("");
                     commands::click_js(selector)
                 };
-                match self.eval_with_result(&js).await {
+                match self.eval_with_result_on_window(window_label, &js).await {
                     Ok(result) => JsonRpcResponse::success(id, result),
                     Err(e) => JsonRpcResponse::error(id, EVAL_ERROR, e),
                 }
@@ -198,7 +276,7 @@ impl<R: Runtime + 'static> CommandHandler for IpcCommandHandler<R> {
                         .unwrap_or("");
                     commands::fill_js(selector, value)
                 };
-                match self.eval_with_result(&js).await {
+                match self.eval_with_result_on_window(window_label, &js).await {
                     Ok(result) => JsonRpcResponse::success(id, result),
                     Err(e) => JsonRpcResponse::error(id, EVAL_ERROR, e),
                 }
@@ -211,7 +289,7 @@ impl<R: Runtime + 'static> CommandHandler for IpcCommandHandler<R> {
                     .and_then(|v| v.as_str())
                     .unwrap_or("");
                 let js = commands::press_key_js(key);
-                match self.eval_with_result(&js).await {
+                match self.eval_with_result_on_window(window_label, &js).await {
                     Ok(result) => JsonRpcResponse::success(id, result),
                     Err(e) => JsonRpcResponse::error(id, EVAL_ERROR, e),
                 }
@@ -224,7 +302,10 @@ impl<R: Runtime + 'static> CommandHandler for IpcCommandHandler<R> {
                     .and_then(|v| v.as_str())
                     .unwrap_or("");
                 let wrapped = format!("return ({});", script);
-                match self.eval_with_result(&wrapped).await {
+                match self
+                    .eval_with_result_on_window(window_label, &wrapped)
+                    .await
+                {
                     Ok(result) => JsonRpcResponse::success(id, result),
                     Err(e) => JsonRpcResponse::error(id, EVAL_ERROR, e),
                 }
@@ -237,7 +318,7 @@ impl<R: Runtime + 'static> CommandHandler for IpcCommandHandler<R> {
                     .and_then(|v| v.as_str())
                     .unwrap_or("");
                 let js = commands::navigate_js(url);
-                match self.eval_with_result(&js).await {
+                match self.eval_with_result_on_window(window_label, &js).await {
                     Ok(result) => JsonRpcResponse::success(id, result),
                     Err(e) => JsonRpcResponse::error(id, EVAL_ERROR, e),
                 }
@@ -260,7 +341,10 @@ impl<R: Runtime + 'static> CommandHandler for IpcCommandHandler<R> {
                     Ok(Ok(Err(e))) => {
                         tracing::warn!("Native screenshot failed: {}, falling back to JS", e);
                         let screenshot_js = commands::SCREENSHOT_JS;
-                        match self.eval_with_result(screenshot_js).await {
+                        match self
+                            .eval_with_result_on_window(window_label, screenshot_js)
+                            .await
+                        {
                             Ok(result) => JsonRpcResponse::success(id, result),
                             Err(e) => JsonRpcResponse::error(id, EVAL_ERROR, e),
                         }
@@ -268,7 +352,10 @@ impl<R: Runtime + 'static> CommandHandler for IpcCommandHandler<R> {
                     Ok(Err(e)) => {
                         tracing::warn!("Screenshot task panicked: {}, falling back to JS", e);
                         let screenshot_js = commands::SCREENSHOT_JS;
-                        match self.eval_with_result(screenshot_js).await {
+                        match self
+                            .eval_with_result_on_window(window_label, screenshot_js)
+                            .await
+                        {
                             Ok(result) => JsonRpcResponse::success(id, result),
                             Err(e) => JsonRpcResponse::error(id, EVAL_ERROR, e),
                         }
@@ -276,7 +363,10 @@ impl<R: Runtime + 'static> CommandHandler for IpcCommandHandler<R> {
                     Err(_) => {
                         tracing::warn!("Native screenshot timed out, falling back to JS");
                         let screenshot_js = commands::SCREENSHOT_JS;
-                        match self.eval_with_result(screenshot_js).await {
+                        match self
+                            .eval_with_result_on_window(window_label, screenshot_js)
+                            .await
+                        {
                             Ok(result) => JsonRpcResponse::success(id, result),
                             Err(e) => JsonRpcResponse::error(id, EVAL_ERROR, e),
                         }
@@ -291,7 +381,7 @@ impl<R: Runtime + 'static> CommandHandler for IpcCommandHandler<R> {
                     .and_then(|v| v.as_bool())
                     .unwrap_or(false);
                 let js = commands::get_console_logs_js(clear);
-                match self.eval_with_result(&js).await {
+                match self.eval_with_result_on_window(window_label, &js).await {
                     Ok(result) => JsonRpcResponse::success(id, result),
                     Err(e) => JsonRpcResponse::error(id, EVAL_ERROR, e),
                 }
@@ -304,7 +394,7 @@ impl<R: Runtime + 'static> CommandHandler for IpcCommandHandler<R> {
                     .and_then(|v| v.as_bool())
                     .unwrap_or(false);
                 let js = commands::get_network_logs_js(clear);
-                match self.eval_with_result(&js).await {
+                match self.eval_with_result_on_window(window_label, &js).await {
                     Ok(result) => JsonRpcResponse::success(id, result),
                     Err(e) => JsonRpcResponse::error(id, EVAL_ERROR, e),
                 }
@@ -317,7 +407,7 @@ impl<R: Runtime + 'static> CommandHandler for IpcCommandHandler<R> {
                     .and_then(|v| v.as_bool())
                     .unwrap_or(false);
                 let js = commands::get_frontend_logs_js(clear);
-                match self.eval_with_result(&js).await {
+                match self.eval_with_result_on_window(window_label, &js).await {
                     Ok(result) => JsonRpcResponse::success(id, result),
                     Err(e) => JsonRpcResponse::error(id, EVAL_ERROR, e),
                 }

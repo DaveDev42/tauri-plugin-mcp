@@ -57,16 +57,26 @@ Claude Code <-> MCP Server (Node.js) <-> IPC Socket <-> Tauri Plugin (Rust) <-> 
 | `app_status` | - | Returns `{ status, app }` |
 | `launch_app` | `wait_for_ready?: boolean` (default: true), `timeout_secs?: number` (default: 60), `features?: string[]` | Runs `pnpm tauri dev [--features ...]` |
 | `stop_app` | - | Kills app process tree |
-| `snapshot` | - | Returns accessibility tree with ref numbers |
-| `click` | `ref?: number`, `selector?: string` | Either ref or selector required |
-| `fill` | `ref?: number`, `selector?: string`, `value: string` | Either ref or selector required |
-| `press_key` | `key: string` | Key name (e.g., "Enter", "Tab") |
-| `navigate` | `url: string` | Sets window.location.href |
-| `screenshot` | - | Returns base64 JPEG via html2canvas |
-| `evaluate_script` | `script: string` | Executes JS, returns result |
-| `get_console_logs` | `clear?: boolean` | Returns captured browser console logs (log/info/warn/error/debug) |
-| `get_network_logs` | `clear?: boolean` | Returns captured browser network requests (fetch/XHR) |
-| `get_app_logs` | `limit?: number`, `clear?: boolean` | Returns Tauri app stdout/stderr (Rust logs, build output) |
+| `list_windows` | - | List all open windows with labels, titles, and focus state |
+| `focus_window` | `window: string` | Focus a specific window by label |
+| `snapshot` | `window?: string` | Returns accessibility tree with ref numbers |
+| `click` | `ref?: number`, `selector?: string`, `window?: string` | Either ref or selector required |
+| `fill` | `ref?: number`, `selector?: string`, `value: string`, `window?: string` | Either ref or selector required |
+| `press_key` | `key: string`, `window?: string` | Key name (e.g., "Enter", "Tab") |
+| `navigate` | `url: string`, `window?: string` | Sets window.location.href |
+| `screenshot` | `window?: string` | Returns base64 JPEG via html2canvas |
+| `evaluate_script` | `script: string`, `window?: string` | Executes JS, returns result |
+| `get_logs` | `filter?: string[]`, `limit?: number`, `clear?: boolean`, `window?: string` | Unified log access |
+
+### Multi-Window Support
+
+All interaction tools accept an optional `window` parameter to target specific windows. If not specified, the focused window is used.
+
+```
+list_windows()                    # Returns: [{ label: "main", focused: true }, { label: "settings", ... }]
+snapshot({ window: "settings" })  # Snapshot of settings window
+click({ ref: 5, window: "main" }) # Click in main window
+```
 
 ### Ref System
 

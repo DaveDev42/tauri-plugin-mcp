@@ -186,43 +186,72 @@ export class SocketManager {
     });
   }
 
-  async snapshot(): Promise<string> {
-    const result = await this.sendCommand('snapshot') as { snapshot: string; title: string; url: string };
-    // Format as readable output
-    return `# ${result.title}\nURL: ${result.url}\n\n${result.snapshot}`;
+  // Multi-window support methods
+
+  async listWindows(): Promise<{ windows: Array<{ label: string; title: string; focused: boolean; visible: boolean; size: { width: number; height: number } | null }> }> {
+    const result = await this.sendCommand('list_windows') as { windows: Array<{ label: string; title: string; focused: boolean; visible: boolean; size: { width: number; height: number } | null }> };
+    return result;
   }
 
-  async click(options: { ref?: number; selector?: string }): Promise<string> {
+  async focusWindow(windowLabel: string): Promise<string> {
+    const result = await this.sendCommand('focus_window', { window: windowLabel }) as { focused: string };
+    return `Focused window: ${result.focused}`;
+  }
+
+  async snapshot(options?: { window?: string }): Promise<string> {
+    const params: Record<string, unknown> = {};
+    if (options?.window) params.window = options.window;
+
+    const result = await this.sendCommand('snapshot', params) as { window: string; snapshot: string; title: string; url: string };
+    // Format as readable output with window label
+    return `# [${result.window}] ${result.title}\nURL: ${result.url}\n\n${result.snapshot}`;
+  }
+
+  async click(options: { ref?: number; selector?: string; window?: string }): Promise<string> {
     const result = await this.sendCommand('click', options) as { success: boolean; error?: string };
     if (!result.success) {
       throw new Error(result.error || 'Click failed');
     }
-    return `Clicked ${options.ref ? `ref=${options.ref}` : options.selector}`;
+    const target = options.ref ? `ref=${options.ref}` : options.selector;
+    const windowInfo = options.window ? ` in window '${options.window}'` : '';
+    return `Clicked ${target}${windowInfo}`;
   }
 
-  async fill(options: { ref?: number; selector?: string; value: string }): Promise<string> {
+  async fill(options: { ref?: number; selector?: string; value: string; window?: string }): Promise<string> {
     const result = await this.sendCommand('fill', options) as { success: boolean; error?: string };
     if (!result.success) {
       throw new Error(result.error || 'Fill failed');
     }
-    return `Filled ${options.ref ? `ref=${options.ref}` : options.selector} with "${options.value}"`;
+    const target = options.ref ? `ref=${options.ref}` : options.selector;
+    const windowInfo = options.window ? ` in window '${options.window}'` : '';
+    return `Filled ${target} with "${options.value}"${windowInfo}`;
   }
 
-  async pressKey(key: string): Promise<string> {
-    const result = await this.sendCommand('press_key', { key }) as { success: boolean; error?: string };
+  async pressKey(key: string, windowLabel?: string): Promise<string> {
+    const params: Record<string, unknown> = { key };
+    if (windowLabel) params.window = windowLabel;
+
+    const result = await this.sendCommand('press_key', params) as { success: boolean; error?: string };
     if (!result.success) {
       throw new Error(result.error || 'Press key failed');
     }
-    return `Pressed key: ${key}`;
+    const windowInfo = windowLabel ? ` in window '${windowLabel}'` : '';
+    return `Pressed key: ${key}${windowInfo}`;
   }
 
-  async evaluateScript(script: string): Promise<unknown> {
-    const result = await this.sendCommand('evaluate_script', { script });
+  async evaluateScript(script: string, windowLabel?: string): Promise<unknown> {
+    const params: Record<string, unknown> = { script };
+    if (windowLabel) params.window = windowLabel;
+
+    const result = await this.sendCommand('evaluate_script', params);
     return result;
   }
 
-  async screenshot(): Promise<{ data: string; mimeType: string; width: number; height: number }> {
-    const result = await this.sendCommand('screenshot') as { data: string; width: number; height: number };
+  async screenshot(options?: { window?: string }): Promise<{ data: string; mimeType: string; width: number; height: number }> {
+    const params: Record<string, unknown> = {};
+    if (options?.window) params.window = options.window;
+
+    const result = await this.sendCommand('screenshot', params) as { data: string; width: number; height: number };
     // data is a Data URL like "data:image/jpeg;base64,..."
     // Extract the base64 part and mime type
     const match = result.data.match(/^data:([^;]+);base64,(.+)$/);
@@ -238,31 +267,44 @@ export class SocketManager {
     return { ...result, mimeType: 'image/png' };
   }
 
-  async navigate(url: string): Promise<string> {
-    const result = await this.sendCommand('navigate', { url }) as { success: boolean; error?: string };
+  async navigate(url: string, windowLabel?: string): Promise<string> {
+    const params: Record<string, unknown> = { url };
+    if (windowLabel) params.window = windowLabel;
+
+    const result = await this.sendCommand('navigate', params) as { success: boolean; error?: string };
     if (!result.success) {
       throw new Error(result.error || 'Navigate failed');
     }
-    return `Navigated to ${url}`;
+    const windowInfo = windowLabel ? ` in window '${windowLabel}'` : '';
+    return `Navigated to ${url}${windowInfo}`;
   }
 
-  async getConsoleLogs(clear?: boolean): Promise<unknown> {
-    const result = await this.sendCommand('get_console_logs', { clear: clear ?? false });
+  async getConsoleLogs(clear?: boolean, windowLabel?: string): Promise<unknown> {
+    const params: Record<string, unknown> = { clear: clear ?? false };
+    if (windowLabel) params.window = windowLabel;
+
+    const result = await this.sendCommand('get_console_logs', params);
     return result;
   }
 
-  async getNetworkLogs(clear?: boolean): Promise<unknown> {
-    const result = await this.sendCommand('get_network_logs', { clear: clear ?? false });
+  async getNetworkLogs(clear?: boolean, windowLabel?: string): Promise<unknown> {
+    const params: Record<string, unknown> = { clear: clear ?? false };
+    if (windowLabel) params.window = windowLabel;
+
+    const result = await this.sendCommand('get_network_logs', params);
     return result;
   }
 
-  async getFrontendLogs(clear?: boolean): Promise<{
+  async getFrontendLogs(clear?: boolean, windowLabel?: string): Promise<{
     consoleLogs: Array<{ source: string; category: string; level: string; message: string; timestamp: number }>;
     buildLogs: Array<{ source: string; category: string; level: string; message: string; timestamp: number; details?: { file?: string; line?: number; column?: number } }>;
     networkLogs: Array<{ source: string; category: string; level: string; message: string; timestamp: number; details?: { url?: string; method?: string; status?: number; duration?: number } }>;
     hmrStatus: { connected: boolean; status: string; lastSuccess: number | null };
   }> {
-    const result = await this.sendCommand('get_frontend_logs', { clear: clear ?? false });
+    const params: Record<string, unknown> = { clear: clear ?? false };
+    if (windowLabel) params.window = windowLabel;
+
+    const result = await this.sendCommand('get_frontend_logs', params);
     return result as {
       consoleLogs: Array<{ source: string; category: string; level: string; message: string; timestamp: number }>;
       buildLogs: Array<{ source: string; category: string; level: string; message: string; timestamp: number; details?: { file?: string; line?: number; column?: number } }>;
