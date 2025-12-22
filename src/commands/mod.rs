@@ -502,9 +502,24 @@ pub const SCREENSHOT_JS: &str = r#"
     });
 
     // Apply computed styles inline to preserve colors
+    // Skip SVG and icon elements to avoid breaking their rendering
     const elements = document.body.querySelectorAll('*');
     const inlineBackups = [];
     elements.forEach((el) => {
+        // Skip SVG elements and their children - they handle colors differently
+        if (el instanceof SVGElement || el.closest('svg')) {
+            return;
+        }
+
+        // Skip common icon element patterns (font icons, icon components)
+        const tagName = el.tagName.toLowerCase();
+        const classList = [...el.classList];
+        if (tagName === 'i' ||
+            classList.some(c => c === 'icon' || c === 'material-icons' ||
+                /^fa[srbl]?$/.test(c) || c.startsWith('lucide-'))) {
+            return;
+        }
+
         const computed = window.getComputedStyle(el);
         const oldStyle = el.getAttribute('style') || '';
         inlineBackups.push({ el, oldStyle });
@@ -518,7 +533,7 @@ pub const SCREENSHOT_JS: &str = r#"
         const canvas = await window.html2canvas(document.body, {
             useCORS: true,
             allowTaint: true,
-            scale: 0.5,
+            scale: 1.0,  // Use 1.0 for accurate rendering on Retina displays
             logging: false
         });
 
