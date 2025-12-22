@@ -11,11 +11,42 @@ export interface TauriAppConfig {
 
 export type AppStatus = 'not_running' | 'starting' | 'running';
 
+export type BuildHealthStatus = 'healthy' | 'error' | 'unknown';
+
 export interface LaunchOptions {
   wait_for_ready?: boolean;
   timeout_secs?: number;
   features?: string[];
   devtools?: boolean;
+}
+
+export interface LaunchResult {
+  status: 'launched' | 'already_running' | 'build_error';
+  message: string;
+  port: number;
+  buildHealth: {
+    frontend: BuildHealthStatus;
+    backend: BuildHealthStatus;
+  };
+  errors?: LogEntry[];
+}
+
+export interface LogEntry {
+  source: 'console' | 'network' | 'vite' | 'typescript' | 'rust' | 'tauri';
+  category: 'build-frontend' | 'build-backend' | 'runtime-frontend' | 'runtime-backend' | 'runtime-frontend-network';
+  level: 'debug' | 'info' | 'warning' | 'error';
+  message: string;
+  timestamp: number;
+  details?: {
+    file?: string;
+    line?: number;
+    column?: number;
+    stack?: string;
+    url?: string;
+    method?: string;
+    status?: number;
+    duration?: number;
+  };
 }
 
 const SOCKET_FILE_NAME = '.tauri-mcp.sock';
@@ -270,7 +301,7 @@ export class TauriManager {
     return fs.existsSync(binaryPath);
   }
 
-  async launch(options: LaunchOptions = {}): Promise<{ message: string; port: number }> {
+  async launch(options: LaunchOptions = {}): Promise<LaunchResult> {
     const waitForReady = options.wait_for_ready ?? true;
     const devtools = options.devtools ?? false;
 
@@ -294,8 +325,20 @@ export class TauriManager {
       throw new Error('No Tauri app detected. Make sure src-tauri/Cargo.toml exists.');
     }
 
+    // Idempotent: if already running, return current status
     if (this.process) {
-      throw new Error('App is already running. Stop it first.');
+      const errors = this.parseBackendLogs(this.outputBuffer);
+      const backendHealth = errors.some(e => e.level === 'error') ? 'error' as const : 'healthy' as const;
+      return {
+        status: 'already_running',
+        message: 'App is already running',
+        port: this.vitePort,
+        buildHealth: {
+          frontend: 'unknown', // Will be determined by frontend logs
+          backend: backendHealth,
+        },
+        errors: errors.filter(e => e.level === 'error'),
+      };
     }
 
     // Determine timeout based on build cache existence
@@ -368,11 +411,47 @@ export class TauriManager {
     });
 
     if (waitForReady) {
-      await this.waitForReady(timeoutSecs);
+      try {
+        await this.waitForReady(timeoutSecs);
+        const errors = this.parseBackendLogs(this.outputBuffer);
+        const hasErrors = errors.some(e => e.level === 'error');
+        this.status = 'running';
+        return {
+          status: hasErrors ? 'build_error' : 'launched',
+          message: hasErrors ? 'App started with build errors' : 'App is ready',
+          port: this.vitePort,
+          buildHealth: {
+            frontend: 'unknown', // Will be determined by frontend logs
+            backend: hasErrors ? 'error' : 'healthy',
+          },
+          errors: hasErrors ? errors.filter(e => e.level === 'error') : undefined,
+        };
+      } catch (e) {
+        // Timeout or crash - still return useful info
+        const errors = this.parseBackendLogs(this.outputBuffer);
+        return {
+          status: 'build_error',
+          message: e instanceof Error ? e.message : 'Build failed',
+          port: this.vitePort,
+          buildHealth: {
+            frontend: 'unknown',
+            backend: 'error',
+          },
+          errors: errors.filter(e => e.level === 'error'),
+        };
+      }
     }
 
     this.status = 'running';
-    return { message: 'App is ready', port: this.vitePort };
+    return {
+      status: 'launched',
+      message: 'App launched (not waiting for ready)',
+      port: this.vitePort,
+      buildHealth: {
+        frontend: 'unknown',
+        backend: 'unknown',
+      },
+    };
   }
 
   private async waitForReady(timeoutSecs: number): Promise<void> {
@@ -599,5 +678,153 @@ export class TauriManager {
 
   private sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  /**
+   * Parse backend logs (stdout/stderr) for errors
+   */
+  parseBackendLogs(rawLogs: string[]): LogEntry[] {
+    const entries: LogEntry[] = [];
+    const now = Date.now();
+
+    for (const line of rawLogs) {
+      // Rust compile error: error[E0425]: cannot find value `x`
+      const rustError = line.match(/error\[E(\d+)\]:\s*(.+)/);
+      if (rustError) {
+        entries.push({
+          source: 'rust',
+          category: 'build-backend',
+          level: 'error',
+          message: `E${rustError[1]}: ${rustError[2]}`,
+          timestamp: now,
+        });
+        continue;
+      }
+
+      // Rust compile error with file location: --> src/main.rs:10:5
+      const rustLocation = line.match(/-->\s+(.+?):(\d+):(\d+)/);
+      if (rustLocation && entries.length > 0) {
+        const lastEntry = entries[entries.length - 1];
+        if (lastEntry.source === 'rust' && !lastEntry.details?.file) {
+          lastEntry.details = {
+            file: rustLocation[1],
+            line: parseInt(rustLocation[2]),
+            column: parseInt(rustLocation[3]),
+          };
+        }
+        continue;
+      }
+
+      // Vite error: [vite] Internal server error: ...
+      const viteError = line.match(/\[vite\].*error:?\s*(.+)/i);
+      if (viteError) {
+        entries.push({
+          source: 'vite',
+          category: 'build-frontend',
+          level: 'error',
+          message: viteError[1],
+          timestamp: now,
+        });
+        continue;
+      }
+
+      // TypeScript error: src/App.tsx(45,12): error TS2345: ...
+      // Or: src/App.tsx:45:12 - error TS2345: ...
+      const tsError = line.match(/(.+?)[:\(](\d+)[,:](\d+)\)?:?\s*error\s*(TS\d+):\s*(.+)/);
+      if (tsError) {
+        entries.push({
+          source: 'typescript',
+          category: 'build-frontend',
+          level: 'error',
+          message: `${tsError[4]}: ${tsError[5]}`,
+          timestamp: now,
+          details: {
+            file: tsError[1],
+            line: parseInt(tsError[2]),
+            column: parseInt(tsError[3]),
+          },
+        });
+        continue;
+      }
+
+      // Rust warning: warning[...]
+      const rustWarning = line.match(/warning\[?.*\]?:\s*(.+)/);
+      if (rustWarning) {
+        entries.push({
+          source: 'rust',
+          category: 'build-backend',
+          level: 'warning',
+          message: rustWarning[1],
+          timestamp: now,
+        });
+        continue;
+      }
+
+      // Generic error lines (case insensitive)
+      if (/\berror\b/i.test(line) && !/\[tauri-plugin-mcp\]/.test(line)) {
+        entries.push({
+          source: 'tauri',
+          category: 'runtime-backend',
+          level: 'error',
+          message: line.replace(/^\[(?:stdout|stderr)\]\s*/, ''),
+          timestamp: now,
+        });
+      }
+    }
+
+    return entries;
+  }
+
+  /**
+   * Get unified logs with optional filtering
+   */
+  getUnifiedLogs(options: {
+    filter?: string;
+    limit?: number;
+    clear?: boolean;
+  } = {}): { entries: LogEntry[]; summary: { total: number; errors: number; warnings: number } } {
+    const { filter = 'all', limit = 50, clear = false } = options;
+
+    let entries = this.parseBackendLogs(this.outputBuffer);
+
+    // Apply filter
+    if (filter !== 'all') {
+      switch (filter) {
+        case 'build':
+          entries = entries.filter(e => e.category.startsWith('build-'));
+          break;
+        case 'build-frontend':
+          entries = entries.filter(e => e.category === 'build-frontend');
+          break;
+        case 'build-backend':
+          entries = entries.filter(e => e.category === 'build-backend');
+          break;
+        case 'runtime':
+          entries = entries.filter(e => e.category.startsWith('runtime-'));
+          break;
+        case 'runtime-backend':
+          entries = entries.filter(e => e.category === 'runtime-backend');
+          break;
+        case 'errors-and-warnings':
+          entries = entries.filter(e => e.level === 'error' || e.level === 'warning');
+          break;
+      }
+    }
+
+    // Apply limit
+    entries = entries.slice(-limit);
+
+    // Calculate summary
+    const summary = {
+      total: entries.length,
+      errors: entries.filter(e => e.level === 'error').length,
+      warnings: entries.filter(e => e.level === 'warning').length,
+    };
+
+    if (clear) {
+      this.outputBuffer = [];
+    }
+
+    return { entries, summary };
   }
 }

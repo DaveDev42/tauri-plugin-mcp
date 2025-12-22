@@ -1,5 +1,16 @@
 import { invoke, Channel } from '@tauri-apps/api/core';
 
+// Vite HMR types (only available in dev mode)
+interface ViteHot {
+  on(event: string, callback: (data: unknown) => void): void;
+}
+
+declare global {
+  interface ImportMeta {
+    hot?: ViteHot;
+  }
+}
+
 /**
  * Result of a JavaScript evaluation
  */
@@ -34,6 +45,19 @@ interface NetworkLogEntry {
 }
 
 /**
+ * Build log entry (Vite/TypeScript errors)
+ */
+interface BuildLogEntry {
+  source: 'vite' | 'typescript' | 'hmr';
+  level: 'info' | 'warning' | 'error';
+  message: string;
+  file?: string;
+  line?: number;
+  column?: number;
+  timestamp: number;
+}
+
+/**
  * MCP Bridge state
  */
 interface McpBridgeState {
@@ -48,6 +72,9 @@ declare global {
     __MCP_REF_MAP__: Map<number, Element>;
     __MCP_CONSOLE_LOGS__: ConsoleLogEntry[];
     __MCP_NETWORK_LOGS__: NetworkLogEntry[];
+    __MCP_BUILD_LOGS__: BuildLogEntry[];
+    __MCP_HMR_STATUS__: 'connected' | 'disconnected' | 'unknown';
+    __MCP_HMR_LAST_SUCCESS__: number | null;
   }
 }
 
@@ -83,12 +110,18 @@ export async function initMcpBridge(): Promise<void> {
   // Initialize log storage
   window.__MCP_CONSOLE_LOGS__ = [];
   window.__MCP_NETWORK_LOGS__ = [];
+  window.__MCP_BUILD_LOGS__ = [];
+  window.__MCP_HMR_STATUS__ = 'unknown';
+  window.__MCP_HMR_LAST_SUCCESS__ = null;
 
   // Set up console log capture
   setupConsoleCapture();
 
   // Set up network log capture
   setupNetworkCapture();
+
+  // Set up Vite HMR monitoring
+  setupViteHMRMonitoring();
 
   // Set up eval function that Rust will call via invoke
   window.__MCP_EVAL__ = async (requestId: string, script: string) => {
@@ -302,4 +335,63 @@ function setupNetworkCapture(): void {
  */
 export function isBridgeInitialized(): boolean {
   return window.__MCP_BRIDGE__?.initialized ?? false;
+}
+
+/**
+ * Set up Vite HMR monitoring to capture build errors and connection status
+ */
+function setupViteHMRMonitoring(): void {
+  // Check if we're in Vite dev mode with HMR support
+  if (typeof import.meta === 'undefined' || !import.meta.hot) {
+    console.log('[tauri-plugin-mcp] Vite HMR not available (production mode or non-Vite build)');
+    return;
+  }
+
+  const hot = import.meta.hot;
+
+  // Track WebSocket connection status
+  hot.on('vite:ws:connect', () => {
+    window.__MCP_HMR_STATUS__ = 'connected';
+    console.log('[tauri-plugin-mcp] HMR WebSocket connected');
+  });
+
+  hot.on('vite:ws:disconnect', () => {
+    window.__MCP_HMR_STATUS__ = 'disconnected';
+    console.log('[tauri-plugin-mcp] HMR WebSocket disconnected');
+  });
+
+  // Track successful HMR updates
+  hot.on('vite:afterUpdate', () => {
+    window.__MCP_HMR_LAST_SUCCESS__ = Date.now();
+    // Clear build errors on successful update
+    window.__MCP_BUILD_LOGS__ = window.__MCP_BUILD_LOGS__.filter(
+      (log) => log.level !== 'error'
+    );
+  });
+
+  // Capture build errors
+  hot.on('vite:error', (data: unknown) => {
+    const event = data as { err?: { message?: string; loc?: { file?: string; line?: number; column?: number } } };
+    const err = event.err || {};
+    window.__MCP_BUILD_LOGS__.push({
+      source: 'vite',
+      level: 'error',
+      message: err.message || 'Unknown Vite error',
+      file: err.loc?.file,
+      line: err.loc?.line,
+      column: err.loc?.column,
+      timestamp: Date.now(),
+    });
+
+    // Keep only last N entries
+    if (window.__MCP_BUILD_LOGS__.length > MAX_LOG_ENTRIES) {
+      window.__MCP_BUILD_LOGS__.shift();
+    }
+
+    console.error('[tauri-plugin-mcp] Vite build error captured:', err.message);
+  });
+
+  // Mark as connected initially if HMR is available
+  window.__MCP_HMR_STATUS__ = 'connected';
+  console.log('[tauri-plugin-mcp] Vite HMR monitoring initialized');
 }

@@ -214,11 +214,29 @@ pub const SNAPSHOT_JS: &str = r#"
     const tree = buildTree(document.body);
     const snapshot = treeToText(tree);
 
-    return {
+    // Build health status from HMR monitoring
+    const buildHealth = {
+        frontend: (window.__MCP_BUILD_LOGS__ || []).some(log => log.level === 'error') ? 'error' : 'healthy',
+        hmrConnected: window.__MCP_HMR_STATUS__ === 'connected',
+        lastError: (window.__MCP_BUILD_LOGS__ || []).filter(log => log.level === 'error').slice(-1)[0] || null,
+    };
+
+    // Include warning if there are build errors
+    const result = {
         url: window.location.href,
         title: document.title,
-        snapshot: snapshot
+        snapshot: snapshot,
+        buildHealth: buildHealth,
     };
+
+    if (buildHealth.frontend === 'error' && buildHealth.lastError) {
+        result.warning = `Build error: ${buildHealth.lastError.message}`;
+        if (buildHealth.lastError.file) {
+            result.warning += ` (${buildHealth.lastError.file}:${buildHealth.lastError.line || '?'})`;
+        }
+    }
+
+    return result;
 "#;
 
 /// JavaScript code to click an element by CSS selector
@@ -401,6 +419,60 @@ if ({clear}) {{
     window.__MCP_NETWORK_LOGS__ = [];
 }}
 return result;
+"#,
+        clear = if clear { "true" } else { "false" }
+    )
+}
+
+/// JavaScript code to get frontend logs (console, build, network) and HMR status
+pub fn get_frontend_logs_js(clear: bool) -> String {
+    format!(
+        r#"
+const consoleLogs = (window.__MCP_CONSOLE_LOGS__ || []).map(log => ({{
+    source: 'console',
+    category: 'runtime-frontend',
+    level: log.level === 'error' ? 'error' : log.level === 'warn' ? 'warning' : 'info',
+    message: log.args.map(a => typeof a === 'string' ? a : JSON.stringify(a)).join(' '),
+    timestamp: log.timestamp,
+}}));
+
+const buildLogs = (window.__MCP_BUILD_LOGS__ || []).map(log => ({{
+    source: log.source,
+    category: 'build-frontend',
+    level: log.level,
+    message: log.message,
+    timestamp: log.timestamp,
+    details: log.file ? {{ file: log.file, line: log.line, column: log.column }} : undefined,
+}}));
+
+const networkLogs = (window.__MCP_NETWORK_LOGS__ || []).map(log => ({{
+    source: 'network',
+    category: 'runtime-frontend-network',
+    level: log.status >= 400 || log.error ? 'error' : 'info',
+    message: log.error ? `${{log.method}} ${{log.url}} - ERROR: ${{log.error}}` : `${{log.method}} ${{log.url}} - ${{log.status}}`,
+    timestamp: log.timestamp,
+    details: {{
+        url: log.url,
+        method: log.method,
+        status: log.status,
+        duration: log.duration,
+        error: log.error,
+    }},
+}}));
+
+const hmrStatus = {{
+    connected: window.__MCP_HMR_STATUS__ === 'connected',
+    status: window.__MCP_HMR_STATUS__ || 'unknown',
+    lastSuccess: window.__MCP_HMR_LAST_SUCCESS__ || null,
+}};
+
+if ({clear}) {{
+    window.__MCP_CONSOLE_LOGS__ = [];
+    window.__MCP_BUILD_LOGS__ = [];
+    window.__MCP_NETWORK_LOGS__ = [];
+}}
+
+return {{ consoleLogs, buildLogs, networkLogs, hmrStatus }};
 "#,
         clear = if clear { "true" } else { "false" }
     )

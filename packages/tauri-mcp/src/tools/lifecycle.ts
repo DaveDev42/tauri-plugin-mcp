@@ -72,26 +72,19 @@ export const toolSchemas = {
       url: z.string().describe('URL'),
     }),
   },
-  get_console_logs: {
-    name: 'get_console_logs',
-    description: 'Get captured browser console logs (console.log, warn, error, etc.)',
+  get_logs: {
+    name: 'get_logs',
+    description: 'Get application logs with filtering. Filters can be combined (e.g., ["build", "error"] for build errors only).',
     inputSchema: z.object({
-      clear: z.boolean().optional().describe('Clear logs after reading'),
-    }),
-  },
-  get_network_logs: {
-    name: 'get_network_logs',
-    description: 'Get captured browser network request logs',
-    inputSchema: z.object({
-      clear: z.boolean().optional().describe('Clear logs after reading'),
-    }),
-  },
-  get_app_logs: {
-    name: 'get_app_logs',
-    description: 'Get Tauri app stdout/stderr logs (Rust logs, build output, etc.)',
-    inputSchema: z.object({
-      limit: z.number().optional().describe('Max lines to return'),
-      clear: z.boolean().optional().describe('Clear logs after reading'),
+      filter: z.array(z.enum([
+        // Source filters
+        'build', 'build-frontend', 'build-backend',
+        'runtime', 'runtime-frontend', 'runtime-backend', 'runtime-frontend-network',
+        // Level filters
+        'error', 'warning', 'info',
+      ])).optional().default([]).describe('Filters to apply (empty = all logs)'),
+      limit: z.number().optional().default(50).describe('Max entries'),
+      clear: z.boolean().optional().default(false).describe('Clear logs after reading'),
     }),
   },
 };
@@ -235,37 +228,108 @@ export function createToolHandlers(tauriManager: TauriManager, socketManager: So
       };
     },
 
-    get_console_logs: async (args: { clear?: boolean }) => {
-      const result = await socketManager.getConsoleLogs(args.clear);
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: JSON.stringify(result, null, 2),
-          },
-        ],
-      };
-    },
+    get_logs: async (args: { filter?: string[]; limit?: number; clear?: boolean }) => {
+      const filters = args.filter ?? [];
+      const limit = args.limit ?? 50;
+      const clear = args.clear ?? false;
 
-    get_network_logs: async (args: { clear?: boolean }) => {
-      const result = await socketManager.getNetworkLogs(args.clear);
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: JSON.stringify(result, null, 2),
-          },
-        ],
-      };
-    },
+      // Parse filters into source and level filters
+      const sourceFilters = new Set<string>();
+      const levelFilters = new Set<string>();
 
-    get_app_logs: async (args: { limit?: number; clear?: boolean }) => {
-      const logs = tauriManager.getLogs({ limit: args.limit, clear: args.clear });
+      for (const f of filters) {
+        if (['error', 'warning', 'info'].includes(f)) {
+          levelFilters.add(f);
+        } else {
+          sourceFilters.add(f);
+        }
+      }
+
+      // Helper to check if entry matches filters
+      const matchesFilters = (entry: { category: string; level: string }) => {
+        // If no filters, match all
+        if (filters.length === 0) return true;
+
+        // Check source filter
+        let sourceMatch = sourceFilters.size === 0; // No source filter = match all sources
+        if (!sourceMatch) {
+          if (sourceFilters.has('build') && entry.category.startsWith('build-')) sourceMatch = true;
+          if (sourceFilters.has('build-frontend') && entry.category === 'build-frontend') sourceMatch = true;
+          if (sourceFilters.has('build-backend') && entry.category === 'build-backend') sourceMatch = true;
+          if (sourceFilters.has('runtime') && entry.category.startsWith('runtime-')) sourceMatch = true;
+          if (sourceFilters.has('runtime-frontend') && entry.category === 'runtime-frontend') sourceMatch = true;
+          if (sourceFilters.has('runtime-backend') && entry.category === 'runtime-backend') sourceMatch = true;
+          if (sourceFilters.has('runtime-frontend-network') && entry.category === 'runtime-frontend-network') sourceMatch = true;
+        }
+
+        // Check level filter
+        let levelMatch = levelFilters.size === 0; // No level filter = match all levels
+        if (!levelMatch) {
+          if (levelFilters.has(entry.level)) levelMatch = true;
+        }
+
+        // Both must match (AND logic when both types are specified)
+        return sourceMatch && levelMatch;
+      };
+
+      // Get backend logs from TauriManager (get all, filter later)
+      const backendResult = tauriManager.getUnifiedLogs({ filter: 'all', limit: 1000, clear });
+
+      // Get frontend logs from socket if app is running
+      let frontendLogs: {
+        consoleLogs: Array<{ source: string; category: string; level: string; message: string; timestamp: number }>;
+        buildLogs: Array<{ source: string; category: string; level: string; message: string; timestamp: number; details?: { file?: string; line?: number; column?: number } }>;
+        networkLogs: Array<{ source: string; category: string; level: string; message: string; timestamp: number; details?: { url?: string; method?: string; status?: number; duration?: number } }>;
+        hmrStatus: { connected: boolean; status: string; lastSuccess: number | null };
+      } | null = null;
+
+      try {
+        frontendLogs = await socketManager.getFrontendLogs(clear);
+      } catch {
+        // App not running or socket not available
+      }
+
+      // Merge all logs
+      let allEntries = [
+        ...backendResult.entries,
+        ...(frontendLogs?.consoleLogs ?? []) as typeof backendResult.entries,
+        ...(frontendLogs?.buildLogs ?? []) as typeof backendResult.entries,
+        ...(frontendLogs?.networkLogs ?? []) as typeof backendResult.entries,
+      ];
+
+      // Apply filters
+      allEntries = allEntries.filter(matchesFilters);
+
+      // Sort by timestamp and limit
+      allEntries.sort((a, b) => a.timestamp - b.timestamp);
+      allEntries = allEntries.slice(-limit);
+
+      // Calculate summary
+      const summary = {
+        total: allEntries.length,
+        errors: allEntries.filter(e => e.level === 'error').length,
+        warnings: allEntries.filter(e => e.level === 'warning').length,
+      };
+
+      // Build health status
+      const buildHealth = {
+        frontend: frontendLogs?.buildLogs.some(e => e.level === 'error')
+          ? 'error' as const
+          : frontendLogs
+            ? 'healthy' as const
+            : 'unknown' as const,
+        backend: backendResult.entries.some(e => e.level === 'error' && e.category.startsWith('build-'))
+          ? 'error' as const
+          : 'healthy' as const,
+        hmrConnected: frontendLogs?.hmrStatus.connected ?? false,
+        lastSuccessfulBuild: frontendLogs?.hmrStatus.lastSuccess ?? undefined,
+      };
+
       return {
         content: [
           {
             type: 'text' as const,
-            text: logs.length > 0 ? logs.join('\n') : '(no logs captured)',
+            text: JSON.stringify({ entries: allEntries, summary, buildHealth }, null, 2),
           },
         ],
       };

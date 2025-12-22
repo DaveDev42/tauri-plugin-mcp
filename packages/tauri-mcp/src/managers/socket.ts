@@ -255,4 +255,19 @@ export class SocketManager {
     const result = await this.sendCommand('get_network_logs', { clear: clear ?? false });
     return result;
   }
+
+  async getFrontendLogs(clear?: boolean): Promise<{
+    consoleLogs: Array<{ source: string; category: string; level: string; message: string; timestamp: number }>;
+    buildLogs: Array<{ source: string; category: string; level: string; message: string; timestamp: number; details?: { file?: string; line?: number; column?: number } }>;
+    networkLogs: Array<{ source: string; category: string; level: string; message: string; timestamp: number; details?: { url?: string; method?: string; status?: number; duration?: number } }>;
+    hmrStatus: { connected: boolean; status: string; lastSuccess: number | null };
+  }> {
+    const result = await this.sendCommand('get_frontend_logs', { clear: clear ?? false });
+    return result as {
+      consoleLogs: Array<{ source: string; category: string; level: string; message: string; timestamp: number }>;
+      buildLogs: Array<{ source: string; category: string; level: string; message: string; timestamp: number; details?: { file?: string; line?: number; column?: number } }>;
+      networkLogs: Array<{ source: string; category: string; level: string; message: string; timestamp: number; details?: { url?: string; method?: string; status?: number; duration?: number } }>;
+      hmrStatus: { connected: boolean; status: string; lastSuccess: number | null };
+    };
+  }
 }
