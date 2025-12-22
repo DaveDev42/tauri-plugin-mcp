@@ -1,8 +1,16 @@
 import { invoke, Channel } from '@tauri-apps/api/core';
 
+// Original function references (preserved across HMR reloads)
+let originalConsole: Record<string, (...args: unknown[]) => void> | null = null;
+let originalFetch: typeof window.fetch | null = null;
+let originalXhrOpen: typeof XMLHttpRequest.prototype.open | null = null;
+let originalXhrSend: typeof XMLHttpRequest.prototype.send | null = null;
+
 // Vite HMR types (only available in dev mode)
 interface ViteHot {
   on(event: string, callback: (data: unknown) => void): void;
+  off?(event: string, callback: (data: unknown) => void): void;
+  dispose(callback: () => void): void;
 }
 
 declare global {
@@ -107,12 +115,12 @@ export async function initMcpBridge(): Promise<void> {
   // Initialize ref map for accessibility tree
   window.__MCP_REF_MAP__ = new Map();
 
-  // Initialize log storage
-  window.__MCP_CONSOLE_LOGS__ = [];
-  window.__MCP_NETWORK_LOGS__ = [];
-  window.__MCP_BUILD_LOGS__ = [];
-  window.__MCP_HMR_STATUS__ = 'unknown';
-  window.__MCP_HMR_LAST_SUCCESS__ = null;
+  // Initialize log storage (preserve existing logs across HMR reloads)
+  window.__MCP_CONSOLE_LOGS__ = window.__MCP_CONSOLE_LOGS__ || [];
+  window.__MCP_NETWORK_LOGS__ = window.__MCP_NETWORK_LOGS__ || [];
+  window.__MCP_BUILD_LOGS__ = window.__MCP_BUILD_LOGS__ || [];
+  window.__MCP_HMR_STATUS__ = window.__MCP_HMR_STATUS__ || 'unknown';
+  window.__MCP_HMR_LAST_SUCCESS__ = window.__MCP_HMR_LAST_SUCCESS__ || null;
 
   // Set up console log capture
   setupConsoleCapture();
@@ -152,10 +160,49 @@ export async function initMcpBridge(): Promise<void> {
   // Register the bridge with the Rust plugin
   await invoke('plugin:mcp|register_bridge');
 
+  // Register HMR cleanup handler
+  if (import.meta.hot) {
+    import.meta.hot.dispose(() => {
+      cleanupMcpBridge();
+      window.__MCP_BRIDGE__.initialized = false;
+    });
+  }
+
   console.log('[tauri-plugin-mcp] Bridge initialized');
 }
 
 const MAX_LOG_ENTRIES = 1000;
+
+/**
+ * Clean up MCP bridge overrides (restore original functions)
+ * Called before HMR module replacement
+ */
+function cleanupMcpBridge(): void {
+  // Restore console methods
+  if (originalConsole) {
+    const levels = ['log', 'info', 'warn', 'error', 'debug'] as const;
+    for (const level of levels) {
+      if (originalConsole[level]) {
+        console[level] = originalConsole[level] as typeof console.log;
+      }
+    }
+  }
+
+  // Restore fetch
+  if (originalFetch) {
+    window.fetch = originalFetch;
+  }
+
+  // Restore XMLHttpRequest
+  if (originalXhrOpen) {
+    XMLHttpRequest.prototype.open = originalXhrOpen;
+  }
+  if (originalXhrSend) {
+    XMLHttpRequest.prototype.send = originalXhrSend;
+  }
+
+  console.log('[tauri-plugin-mcp] Bridge cleaned up for HMR');
+}
 
 /**
  * Set up console.log/warn/error/info/debug capture
@@ -163,9 +210,15 @@ const MAX_LOG_ENTRIES = 1000;
 function setupConsoleCapture(): void {
   const levels = ['log', 'info', 'warn', 'error', 'debug'] as const;
 
-  for (const level of levels) {
-    const original = console[level].bind(console);
+  // Store original functions only once (first initialization)
+  if (!originalConsole) {
+    originalConsole = {};
+    for (const level of levels) {
+      originalConsole[level] = console[level].bind(console);
+    }
+  }
 
+  for (const level of levels) {
     console[level] = (...args: unknown[]) => {
       // Store the log entry
       window.__MCP_CONSOLE_LOGS__.push({
@@ -179,8 +232,8 @@ function setupConsoleCapture(): void {
         window.__MCP_CONSOLE_LOGS__.shift();
       }
 
-      // Call original
-      original(...args);
+      // Call original (always use the preserved original)
+      originalConsole![level](...args);
     };
   }
 }
@@ -228,15 +281,25 @@ function serializeArg(arg: unknown): unknown {
  * Set up fetch and XMLHttpRequest capture
  */
 function setupNetworkCapture(): void {
+  // Store original functions only once (first initialization)
+  if (!originalFetch) {
+    originalFetch = window.fetch.bind(window);
+  }
+  if (!originalXhrOpen) {
+    originalXhrOpen = XMLHttpRequest.prototype.open;
+  }
+  if (!originalXhrSend) {
+    originalXhrSend = XMLHttpRequest.prototype.send;
+  }
+
   // Capture fetch
-  const originalFetch = window.fetch.bind(window);
   window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
     const method = init?.method || 'GET';
     const startTime = Date.now();
 
     try {
-      const response = await originalFetch(input, init);
+      const response = await originalFetch!(input, init);
 
       window.__MCP_NETWORK_LOGS__.push({
         type: 'fetch',
@@ -273,8 +336,8 @@ function setupNetworkCapture(): void {
   };
 
   // Capture XMLHttpRequest
-  const originalXhrOpen = XMLHttpRequest.prototype.open;
-  const originalXhrSend = XMLHttpRequest.prototype.send;
+  const xhrOpenRef = originalXhrOpen!;
+  const xhrSendRef = originalXhrSend!;
 
   XMLHttpRequest.prototype.open = function (
     method: string,
@@ -285,7 +348,7 @@ function setupNetworkCapture(): void {
   ) {
     (this as XMLHttpRequest & { __mcp_method: string; __mcp_url: string }).__mcp_method = method;
     (this as XMLHttpRequest & { __mcp_url: string }).__mcp_url = typeof url === 'string' ? url : url.href;
-    return originalXhrOpen.call(this, method, url, async ?? true, username, password);
+    return xhrOpenRef.call(this, method, url, async ?? true, username, password);
   };
 
   XMLHttpRequest.prototype.send = function (body?: Document | XMLHttpRequestBodyInit | null) {
@@ -326,7 +389,7 @@ function setupNetworkCapture(): void {
     this.addEventListener('load', handleEnd);
     this.addEventListener('error', handleError);
 
-    return originalXhrSend.call(this, body);
+    return xhrSendRef.call(this, body);
   };
 }
 
