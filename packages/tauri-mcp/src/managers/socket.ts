@@ -1,6 +1,11 @@
 import * as net from 'net';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
+
+const execFileAsync = promisify(execFile);
 
 const SOCKET_FILE_NAME = '.tauri-mcp.sock';
 
@@ -248,6 +253,69 @@ export class SocketManager {
   }
 
   async screenshot(options?: { window?: string }): Promise<{ data: string; mimeType: string; width: number; height: number }> {
+    // On macOS, use screencapture command which doesn't require Screen Recording permission
+    // when capturing by window ID (the app captures its own window)
+    if (os.platform() === 'darwin') {
+      return this.screenshotMacOS(options);
+    }
+
+    // On other platforms, use native screenshot via Rust
+    return this.screenshotNative(options);
+  }
+
+  private async screenshotMacOS(options?: { window?: string }): Promise<{ data: string; mimeType: string; width: number; height: number }> {
+    // Get window ID from Tauri app
+    const params: Record<string, unknown> = {};
+    if (options?.window) params.window = options.window;
+
+    const windowInfo = await this.sendCommand('get_window_id', params) as { window_id: number; pid: number };
+    const windowId = windowInfo.window_id;
+
+    // Create temp file for screenshot
+    const tmpFile = path.join(os.tmpdir(), `tauri-mcp-screenshot-${Date.now()}.png`);
+
+    try {
+      // Use screencapture command with window ID
+      // -l<windowid>: capture specific window
+      // -x: no sound
+      // -o: no shadow
+      await execFileAsync('screencapture', [
+        `-l${windowId}`,
+        '-x',
+        '-o',
+        tmpFile
+      ]);
+
+      // Read the file and convert to base64
+      const imageBuffer = fs.readFileSync(tmpFile);
+      const base64Data = imageBuffer.toString('base64');
+
+      // Get image dimensions (basic PNG header parsing)
+      // PNG dimensions are at bytes 16-23 (width: 16-19, height: 20-23)
+      let width = 0;
+      let height = 0;
+      if (imageBuffer.length > 24 && imageBuffer.toString('ascii', 1, 4) === 'PNG') {
+        width = imageBuffer.readUInt32BE(16);
+        height = imageBuffer.readUInt32BE(20);
+      }
+
+      return {
+        data: base64Data,
+        mimeType: 'image/png',
+        width,
+        height
+      };
+    } finally {
+      // Clean up temp file
+      try {
+        fs.unlinkSync(tmpFile);
+      } catch {
+        // Ignore cleanup errors
+      }
+    }
+  }
+
+  private async screenshotNative(options?: { window?: string }): Promise<{ data: string; mimeType: string; width: number; height: number }> {
     const params: Record<string, unknown> = {};
     if (options?.window) params.window = options.window;
 

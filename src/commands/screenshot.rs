@@ -5,6 +5,39 @@ use image::ImageFormat;
 use std::io::Cursor;
 use xcap::Window;
 
+/// Get the CGWindowID for the largest visible window belonging to the given PID.
+/// This is used on macOS to capture screenshots using the `screencapture` command.
+pub fn get_window_id_by_pid(pid: u32) -> Result<u32, String> {
+    tracing::debug!("Getting window ID for PID {}", pid);
+    let windows = Window::all().map_err(|e| format!("Failed to enumerate windows: {}", e))?;
+
+    let target = windows
+        .into_iter()
+        .filter(|w| w.current_monitor().is_ok())
+        .filter(|w| w.pid().map(|p| p == pid).unwrap_or(false))
+        .filter(|w| !w.is_minimized().unwrap_or(true))
+        .max_by_key(|w| {
+            let width = w.width().unwrap_or(0);
+            let height = w.height().unwrap_or(0);
+            width * height
+        })
+        .ok_or_else(|| format!("No visible window found for PID {}", pid))?;
+
+    let window_id = target
+        .id()
+        .map_err(|e| format!("Failed to get window ID: {}", e))?;
+
+    tracing::debug!(
+        "Found window ID {} for {:?} ({}x{})",
+        window_id,
+        target.title().unwrap_or_default(),
+        target.width().unwrap_or(0),
+        target.height().unwrap_or(0)
+    );
+
+    Ok(window_id)
+}
+
 /// Check if Screen Recording permission is granted on macOS
 #[cfg(target_os = "macos")]
 fn check_screen_recording_permission() -> bool {

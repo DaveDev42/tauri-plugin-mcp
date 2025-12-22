@@ -324,6 +324,29 @@ impl<R: Runtime + 'static> CommandHandler for IpcCommandHandler<R> {
                 }
             }
 
+            "get_window_id" => {
+                // Get the macOS CGWindowID for use with screencapture command
+                let pid = std::process::id();
+                let result = tokio::task::spawn_blocking(move || {
+                    commands::screenshot::get_window_id_by_pid(pid)
+                })
+                .await;
+
+                match result {
+                    Ok(Ok(window_id)) => JsonRpcResponse::success(
+                        id,
+                        serde_json::json!({
+                            "window_id": window_id,
+                            "pid": pid
+                        }),
+                    ),
+                    Ok(Err(e)) => JsonRpcResponse::error(id, EVAL_ERROR, e),
+                    Err(e) => {
+                        JsonRpcResponse::error(id, EVAL_ERROR, format!("Task panicked: {}", e))
+                    }
+                }
+            }
+
             "screenshot" => {
                 // Try native screenshot first with timeout, fallback to JS-based html2canvas
                 // Use spawn_blocking to avoid blocking the async runtime
