@@ -846,7 +846,9 @@ export class TauriManager {
   private parseRustRebuildTrigger(line: string): void {
     // Match: "File <path> changed. Rebuilding application..."
     // Also match: "Info File <path> changed. Rebuilding application..."
-    const match = line.match(/(?:Info\s+)?File\s+(.+?)\s+changed\.\s*Rebuilding/i);
+    // Also match with ANSI color codes: "\x1b[32mInfo\x1b[0m File ..."
+    const cleanLine = line.replace(/\x1b\[[0-9;]*m/g, ''); // Strip ANSI codes
+    const match = cleanLine.match(/(?:Info\s+)?File\s+(.+?)\s+changed\.\s*Rebuilding/i);
     if (match) {
       const file = match[1];
       this.rustRebuildEvents.push({
