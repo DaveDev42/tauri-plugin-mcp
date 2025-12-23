@@ -308,6 +308,31 @@ export class TauriManager {
     return fs.existsSync(binaryPath);
   }
 
+  /**
+   * Check if an external app instance is already running and responding
+   * This detects apps launched by other MCP sessions
+   */
+  private async checkExternalAppRunning(): Promise<boolean> {
+    // For Unix, check if socket file exists
+    if (process.platform !== 'win32') {
+      const socketPath = this.getSocketPath();
+      if (!fs.existsSync(socketPath)) {
+        return false;
+      }
+    }
+
+    // For Windows, try to find existing pipe
+    if (process.platform === 'win32') {
+      const pipePath = this.calculateWindowsPipePath();
+      if (!pipePath) {
+        return false;
+      }
+    }
+
+    // Try to ping the existing socket/pipe
+    return this.verifyAppReady();
+  }
+
   async launch(options: LaunchOptions = {}): Promise<LaunchResult> {
     const waitForReady = options.wait_for_ready ?? true;
     const devtools = options.devtools ?? false;
@@ -332,7 +357,7 @@ export class TauriManager {
       throw new Error('No Tauri app detected. Make sure src-tauri/Cargo.toml exists.');
     }
 
-    // Idempotent: if already running, return current status
+    // Idempotent: if already running (managed by this instance), return current status
     if (this.process) {
       const errors = this.parseBackendLogs(this.outputBuffer);
       const backendHealth = errors.some(e => e.level === 'error') ? 'error' as const : 'healthy' as const;
@@ -346,6 +371,17 @@ export class TauriManager {
         },
         errors: errors.filter(e => e.level === 'error'),
       };
+    }
+
+    // Check if another instance already has an app running (external process)
+    // This prevents duplicate launches that cause connection issues
+    const externalAppRunning = await this.checkExternalAppRunning();
+    if (externalAppRunning) {
+      throw new Error(
+        'Another Tauri app instance is already running and responding on the socket. ' +
+        'This can happen when launch_app is called from a different MCP session. ' +
+        'Please call stop_app first to terminate the existing app, then try launch_app again.'
+      );
     }
 
     // Determine timeout based on build cache existence
