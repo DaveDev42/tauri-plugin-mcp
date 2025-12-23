@@ -157,4 +157,12 @@ export class McpServer {
   async stop() {
     await this.tauriManager.stop();
   }
+
+  /**
+   * Synchronous stop for use in process.on('exit') handler
+   * Uses spawnSync to ensure cleanup happens before process exits
+   */
+  stopSync() {
+    this.tauriManager.stopSync();
+  }
 }

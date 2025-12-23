@@ -1,4 +1,4 @@
-import { spawn, ChildProcess } from 'child_process';
+import { spawn, spawnSync, ChildProcess } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as net from 'net';
@@ -663,6 +663,75 @@ export class TauriManager {
         }
       }, 5000);
     });
+  }
+
+  /**
+   * Synchronous stop for use in process.on('exit') handler
+   * Uses spawnSync to ensure cleanup happens before Node.js exits
+   */
+  stopSync(): void {
+    // Clean up socket file (Unix only)
+    if (process.platform !== 'win32') {
+      const socketPath = this.getSocketPath();
+      if (fs.existsSync(socketPath)) {
+        try {
+          fs.unlinkSync(socketPath);
+        } catch {
+          // Ignore
+        }
+      }
+    }
+
+    if (!this.process) {
+      // No managed process, but try to kill orphan processes anyway
+      this.cleanupOrphanProcessesSync();
+      return;
+    }
+
+    const pid = this.process.pid;
+    if (!pid) {
+      this.cleanupOrphanProcessesSync();
+      return;
+    }
+
+    // Kill process synchronously
+    if (process.platform !== 'win32') {
+      // Kill process group on Unix
+      try {
+        process.kill(-pid, 'SIGKILL');
+      } catch {
+        try {
+          process.kill(pid, 'SIGKILL');
+        } catch {
+          // Ignore
+        }
+      }
+    } else {
+      // On Windows, use taskkill synchronously
+      spawnSync('taskkill', ['/PID', pid.toString(), '/T', '/F'], {
+        stdio: 'ignore',
+        shell: true,
+      });
+    }
+
+    this.cleanupOrphanProcessesSync();
+    this.process = null;
+    this.status = 'not_running';
+    this.detectedPipePath = null;
+  }
+
+  private cleanupOrphanProcessesSync(): void {
+    if (!this.appConfig) return;
+
+    if (process.platform === 'win32') {
+      spawnSync('taskkill', ['/IM', `${this.appConfig.binaryName}.exe`, '/F'], {
+        stdio: 'ignore',
+        shell: true,
+      });
+    } else {
+      // Kill by binary name
+      spawnSync('pkill', ['-9', this.appConfig.binaryName], { stdio: 'ignore' });
+    }
   }
 
   private cleanupOrphanProcesses(): void {
