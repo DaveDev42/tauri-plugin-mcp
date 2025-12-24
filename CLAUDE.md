@@ -73,9 +73,11 @@ Claude Code <-> MCP Server (Node.js) <-> IPC Socket <-> Tauri Plugin (Rust) <-> 
 
 All interaction tools accept an optional `window` parameter to target specific windows. If not specified, the focused window is used.
 
+**Auto Bridge Injection**: The MCP bridge is automatically injected into any window when first accessed. You only need to call `initMcpBridge()` in the main window for full features (console/network log capture, HMR monitoring). Other windows work automatically.
+
 ```
 list_windows()                    # Returns: [{ label: "main", focused: true }, { label: "settings", ... }]
-snapshot({ window: "settings" })  # Snapshot of settings window
+snapshot({ window: "settings" })  # Snapshot of settings window (bridge auto-injected)
 click({ ref: 5, window: "main" }) # Click in main window
 ```
 
@@ -131,7 +133,7 @@ Look for logs:
 
 ### Common Issues
 
-1. **"MCP bridge not initialized"**: Frontend `initMcpBridge()` not called
+1. **"Failed to inject MCP bridge"**: The window may not be fully loaded yet, try waiting
 2. **Socket timeout**: App not running or socket path mismatch
 3. **Empty snapshot**: App not fully loaded, try waiting longer
 

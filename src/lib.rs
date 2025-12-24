@@ -23,8 +23,7 @@ pub mod commands;
 pub mod debug_server;
 pub mod protocol;
 
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tauri::{
     plugin::{Builder, TauriPlugin},
@@ -48,8 +47,8 @@ pub struct EvalResult {
 
 /// Plugin state
 pub struct McpState {
-    /// Whether the JS bridge is registered
-    bridge_ready: AtomicBool,
+    /// Set of window labels where bridge has been initialized
+    initialized_windows: Mutex<HashSet<String>>,
     /// Pending eval results waiting for JS callback
     pending: Mutex<HashMap<String, oneshot::Sender<Result<serde_json::Value, String>>>>,
     /// Debug server
@@ -59,18 +58,18 @@ pub struct McpState {
 impl McpState {
     fn new(debug_server: Arc<DebugServer>) -> Self {
         Self {
-            bridge_ready: AtomicBool::new(false),
+            initialized_windows: Mutex::new(HashSet::new()),
             pending: Mutex::new(HashMap::new()),
             debug_server,
         }
     }
 
-    fn is_bridge_ready(&self) -> bool {
-        self.bridge_ready.load(Ordering::SeqCst)
+    async fn is_window_initialized(&self, label: &str) -> bool {
+        self.initialized_windows.lock().await.contains(label)
     }
 
-    fn set_bridge_ready(&self, ready: bool) {
-        self.bridge_ready.store(ready, Ordering::SeqCst);
+    async fn set_window_initialized(&self, label: String) {
+        self.initialized_windows.lock().await.insert(label);
     }
 }
 
@@ -79,6 +78,46 @@ impl McpState {
 pub trait CommandHandler: Send + Sync {
     async fn handle_request(&self, request: JsonRpcRequest) -> JsonRpcResponse;
 }
+
+/// JavaScript code to auto-inject minimal MCP bridge
+/// This enables multi-window support without requiring manual initMcpBridge() in each window
+const BRIDGE_INIT_JS: &str = r#"
+(function() {
+    if (window.__MCP_BRIDGE__?.initialized) return true;
+
+    window.__MCP_BRIDGE__ = { initialized: true };
+    window.__MCP_REF_MAP__ = window.__MCP_REF_MAP__ || new Map();
+    window.__MCP_CONSOLE_LOGS__ = window.__MCP_CONSOLE_LOGS__ || [];
+    window.__MCP_NETWORK_LOGS__ = window.__MCP_NETWORK_LOGS__ || [];
+    window.__MCP_BUILD_LOGS__ = window.__MCP_BUILD_LOGS__ || [];
+    window.__MCP_HMR_UPDATES__ = window.__MCP_HMR_UPDATES__ || [];
+    window.__MCP_HMR_STATUS__ = window.__MCP_HMR_STATUS__ || 'unknown';
+    window.__MCP_HMR_LAST_SUCCESS__ = window.__MCP_HMR_LAST_SUCCESS__ || null;
+
+    // Get window label from Tauri internals
+    try {
+        window.__MCP_WINDOW_LABEL__ = window.__TAURI_INTERNALS__.metadata.currentWindow.label;
+    } catch (e) {
+        window.__MCP_WINDOW_LABEL__ = 'main';
+    }
+
+    window.__MCP_EVAL__ = async function(requestId, script) {
+        let result;
+        try {
+            const fn = new Function('return (async () => { ' + script + ' })();');
+            const value = await fn();
+            result = { requestId: requestId, success: true, value: value };
+        } catch (e) {
+            result = { requestId: requestId, success: false, error: e.message || String(e) };
+        }
+
+        await window.__TAURI_INTERNALS__.invoke('plugin:mcp|eval_result', { result: result });
+    };
+
+    console.log('[tauri-plugin-mcp] Bridge auto-injected for window:', window.__MCP_WINDOW_LABEL__);
+    return true;
+})();
+"#;
 
 /// IPC-based command handler
 pub struct IpcCommandHandler<R: Runtime> {
@@ -121,19 +160,26 @@ impl<R: Runtime> IpcCommandHandler<R> {
     }
 
     /// Execute JavaScript via IPC bridge on a specific window and wait for result
+    /// Automatically injects the bridge if not initialized for this window
     async fn eval_with_result_on_window(
         &self,
         window_label: Option<&str>,
         script: &str,
     ) -> Result<serde_json::Value, String> {
-        if !self.state.is_bridge_ready() {
-            return Err(
-                "MCP bridge not initialized. Call initMcpBridge() in your frontend.".to_string(),
-            );
-        }
-
         // Get target window
         let window = self.get_webview(window_label)?;
+        let label = window.label().to_string();
+
+        // Auto-inject bridge if not initialized for this window
+        if !self.state.is_window_initialized(&label).await {
+            info!("Auto-injecting MCP bridge for window: {}", label);
+            if let Err(e) = window.eval(BRIDGE_INIT_JS) {
+                return Err(format!("Failed to inject MCP bridge: {}", e));
+            }
+            // Wait a bit for the bridge to initialize
+            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            self.state.set_window_initialized(label.clone()).await;
+        }
 
         // Generate unique request ID
         let request_id = uuid::Uuid::new_v4().to_string();
@@ -466,14 +512,17 @@ fn should_open_devtools() -> bool {
 }
 
 /// Register the JS bridge - called from frontend
+/// This is called when initMcpBridge() is invoked in the frontend
 #[tauri::command]
 async fn register_bridge<R: Runtime>(
+    webview: Webview<R>,
     app: AppHandle<R>,
     state: State<'_, Arc<McpState>>,
 ) -> Result<(), String> {
-    eprintln!("[tauri-plugin-mcp] JS bridge registered!");
-    info!("JS bridge registered");
-    state.set_bridge_ready(true);
+    let label = webview.label().to_string();
+    eprintln!("[tauri-plugin-mcp] JS bridge registered for window: {}", label);
+    info!("JS bridge registered for window: {}", label);
+    state.set_window_initialized(label).await;
 
     // Open devtools if requested via environment variable
     if should_open_devtools() {
