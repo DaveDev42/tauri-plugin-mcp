@@ -347,12 +347,6 @@ export class TauriManager {
       }
     }
 
-    // Always add dev-tools feature for MCP plugin to work
-    // (devtools option controls whether to open devtools, but feature is always needed)
-    if (!features.includes('dev-tools')) {
-      features.push('dev-tools');
-    }
-
     if (!this.appConfig) {
       throw new Error('No Tauri app detected. Make sure src-tauri/Cargo.toml exists.');
     }
