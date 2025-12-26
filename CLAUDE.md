@@ -22,8 +22,6 @@ pnpm typecheck
 cargo check
 ```
 
-**Important**: After modifying TypeScript, always run `pnpm build` - the `dist/` files are committed to git for GitHub package installation.
-
 ## Architecture
 
 ### Communication Flow
@@ -154,6 +152,5 @@ Look for logs:
 ├── packages/
 │   ├── tauri-mcp/         # MCP server
 │   └── tauri-plugin-mcp-api/  # Frontend bridge
-├── permissions/           # Tauri permissions
-└── dist/                  # Built TypeScript (committed)
+└── permissions/           # Tauri permissions
 ```
