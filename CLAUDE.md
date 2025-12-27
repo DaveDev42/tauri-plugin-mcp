@@ -88,6 +88,33 @@ snapshot()          # Returns: [ref=5] <button>Submit</button>
 click({ ref: 5 })   # Clicks the button
 ```
 
+### Dynamic Port Allocation
+
+MCP automatically assigns a random available port (10000-60000) to avoid conflicts when running multiple Tauri apps simultaneously.
+
+**How it works:**
+1. Detects bundler type from `beforeDevCommand` in `tauri.conf.json`
+2. For Vite/Webpack projects: overrides port via Tauri CLI `--config` flag
+3. For unknown bundlers: falls back to default port with warning
+
+**Bundler detection:**
+- Direct detection: `vite`, `webpack`, `webpack-dev-server` in command
+- Indirect detection: analyzes `package.json` scripts and dependencies
+
+**LaunchResult includes:**
+```json
+{
+  "status": "launched",
+  "port": 34567,
+  "portOverrideApplied": true,
+  "warnings": []
+}
+```
+
+**Fallback behavior:**
+- Unknown bundler → uses `devUrl` port from `tauri.conf.json` (default: 1420)
+- Warning included in response for MCP client visibility
+
 ## Environment Variables
 
 | Variable | Purpose | Example |
