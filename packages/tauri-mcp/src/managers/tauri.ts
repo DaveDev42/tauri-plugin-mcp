@@ -24,6 +24,8 @@ export interface LaunchResult {
   status: 'launched' | 'already_running' | 'build_error';
   message: string;
   port: number;
+  portOverrideApplied: boolean;
+  warnings?: string[];
   buildHealth: {
     frontend: BuildHealthStatus;
     backend: BuildHealthStatus;
@@ -70,7 +72,8 @@ export class TauriManager {
   constructor(projectRoot?: string) {
     this.projectRoot = projectRoot ?? process.env.TAURI_PROJECT_ROOT ?? process.cwd();
     this.appConfig = this.detectTauriApp();
-    this.vitePort = this.detectExistingPort() ?? this.generatePort(this.projectRoot);
+    // Port will be dynamically assigned in launch()
+    this.vitePort = 0;
   }
 
   private detectExistingPort(): number | null {
@@ -108,6 +111,122 @@ export class TauriManager {
       hash = hash & hash;
     }
     return 10000 + (Math.abs(hash) % 50000);
+  }
+
+  /**
+   * Check if a port is available for use
+   */
+  private isPortAvailable(port: number): Promise<boolean> {
+    return new Promise((resolve) => {
+      const server = net.createServer();
+      server.once('error', () => resolve(false));
+      server.once('listening', () => {
+        server.close();
+        resolve(true);
+      });
+      server.listen(port, '127.0.0.1');
+    });
+  }
+
+  /**
+   * Find an available random port
+   */
+  private async findAvailablePort(): Promise<number> {
+    const minPort = 10000;
+    const maxPort = 60000;
+    const maxAttempts = 100;
+
+    for (let i = 0; i < maxAttempts; i++) {
+      const port = minPort + Math.floor(Math.random() * (maxPort - minPort));
+      if (await this.isPortAvailable(port)) {
+        return port;
+      }
+    }
+    throw new Error('Could not find an available port after 100 attempts');
+  }
+
+  /**
+   * Read Tauri configuration from tauri.conf.json
+   */
+  private readTauriConfig(): { beforeDevCommand?: string; devUrl?: string } | null {
+    if (!this.appConfig) return null;
+
+    const confPath = path.join(this.appConfig.appDir, 'src-tauri', 'tauri.conf.json');
+    try {
+      const content = fs.readFileSync(confPath, 'utf-8');
+      const config = JSON.parse(content);
+      return {
+        beforeDevCommand: config?.build?.beforeDevCommand,
+        devUrl: config?.build?.devUrl,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Detect the bundler type from beforeDevCommand and package.json
+   */
+  private detectBundlerType(command: string): 'vite' | 'webpack' | 'unknown' {
+    // Direct command detection
+    if (/\bvite\b/i.test(command)) {
+      return 'vite';
+    }
+    if (/\bwebpack\b/i.test(command) || /webpack-dev-server/i.test(command)) {
+      return 'webpack';
+    }
+
+    // If command is like "npm run dev" or "pnpm dev", check package.json
+    if (/^(npm|pnpm|yarn)\s+(run\s+)?dev/i.test(command)) {
+      return this.detectBundlerFromPackageJson();
+    }
+
+    return 'unknown';
+  }
+
+  /**
+   * Detect bundler type by analyzing package.json
+   */
+  private detectBundlerFromPackageJson(): 'vite' | 'webpack' | 'unknown' {
+    if (!this.appConfig) return 'unknown';
+
+    const pkgPath = path.join(this.appConfig.appDir, 'package.json');
+    try {
+      const content = fs.readFileSync(pkgPath, 'utf-8');
+      const pkg = JSON.parse(content);
+
+      // Check dev script content
+      const devScript = pkg.scripts?.dev || '';
+      if (devScript.includes('vite')) return 'vite';
+      if (devScript.includes('webpack')) return 'webpack';
+
+      // Check devDependencies
+      if (pkg.devDependencies?.vite || pkg.dependencies?.vite) return 'vite';
+      if (pkg.devDependencies?.webpack || pkg.dependencies?.webpack) return 'webpack';
+    } catch {
+      // Ignore errors
+    }
+
+    return 'unknown';
+  }
+
+  /**
+   * Inject --port flag into beforeDevCommand
+   */
+  private injectPortToCommand(command: string, port: number): string {
+    // If --port is already specified, replace it
+    if (/--port\s+\d+/.test(command)) {
+      return command.replace(/--port\s+\d+/, `--port ${port}`);
+    }
+
+    // npm/pnpm run commands need -- separator
+    if (/^(npm|pnpm)\s+run\s+/i.test(command)) {
+      return `${command} -- --port ${port}`;
+    }
+
+    // yarn doesn't need -- separator
+    // Direct vite command or other commands
+    return `${command} --port ${port}`;
   }
 
   private detectTauriApp(): TauriAppConfig | null {
@@ -359,6 +478,7 @@ export class TauriManager {
         status: 'already_running',
         message: 'App is already running',
         port: this.vitePort,
+        portOverrideApplied: true, // Was applied on initial launch
         buildHealth: {
           frontend: 'unknown', // Will be determined by frontend logs
           backend: backendHealth,
@@ -397,12 +517,67 @@ export class TauriManager {
       }
     }
 
+    // Dynamic port allocation with bundler detection
+    const tauriConfig = this.readTauriConfig();
+    let portOverrideApplied = false;
+    const warnings: string[] = [];
+    let configOverride: string | null = null;
+
+    if (tauriConfig?.beforeDevCommand) {
+      const bundlerType = this.detectBundlerType(tauriConfig.beforeDevCommand);
+
+      if (bundlerType === 'vite') {
+        // Vite supported - apply dynamic port
+        this.vitePort = await this.findAvailablePort();
+        const modifiedCommand = this.injectPortToCommand(tauriConfig.beforeDevCommand, this.vitePort);
+        configOverride = JSON.stringify({
+          build: {
+            beforeDevCommand: modifiedCommand,
+            devUrl: `http://localhost:${this.vitePort}`,
+          },
+        });
+        portOverrideApplied = true;
+        console.error(`[tauri-mcp] Vite detected. Using dynamic port ${this.vitePort}`);
+      } else if (bundlerType === 'webpack') {
+        // Webpack - try port override with warning
+        this.vitePort = await this.findAvailablePort();
+        const modifiedCommand = this.injectPortToCommand(tauriConfig.beforeDevCommand, this.vitePort);
+        configOverride = JSON.stringify({
+          build: {
+            beforeDevCommand: modifiedCommand,
+            devUrl: `http://localhost:${this.vitePort}`,
+          },
+        });
+        portOverrideApplied = true;
+        warnings.push(`Webpack detected. Port override may not work correctly. Using port ${this.vitePort}`);
+        console.error(`[tauri-mcp] Webpack detected. Attempting dynamic port ${this.vitePort} (may not work)`);
+      } else {
+        // Unknown bundler - use default configuration
+        this.vitePort = this.detectExistingPort() ?? 1420;
+        warnings.push(
+          `Unknown bundler in beforeDevCommand: "${tauriConfig.beforeDevCommand}". ` +
+          `Dynamic port override not applied. Using default port ${this.vitePort}. ` +
+          `If running multiple apps, port conflicts may occur.`
+        );
+        console.error(`[tauri-mcp] Unknown bundler. Using default port ${this.vitePort}`);
+      }
+    } else {
+      // No beforeDevCommand - use default configuration
+      this.vitePort = this.detectExistingPort() ?? 1420;
+      warnings.push('No beforeDevCommand found in tauri.conf.json. Using default port configuration.');
+      console.error(`[tauri-mcp] No beforeDevCommand. Using default port ${this.vitePort}`);
+    }
+
     console.error(`[tauri-mcp] Launching app with Vite port ${this.vitePort}...`);
 
     // Build tauri dev command with optional features
     const tauriArgs = ['tauri', 'dev'];
     if (features.length > 0) {
       tauriArgs.push('--features', features.join(','));
+    }
+    // Add config override for dynamic port
+    if (configOverride) {
+      tauriArgs.push('--config', configOverride);
     }
     console.error(`[tauri-mcp] Command: pnpm ${tauriArgs.join(' ')}`);
     console.error(`[tauri-mcp] Socket will be at: ${this.getSocketPath()}`);
@@ -414,6 +589,7 @@ export class TauriManager {
         // Use appDir as project root for Rust plugin - this is where socket will be created
         TAURI_MCP_PROJECT_ROOT: this.appConfig.appDir,
         TAURI_MCP_DEVTOOLS: devtools ? '1' : '',
+        // Keep VITE_PORT for backwards compatibility
         VITE_PORT: this.vitePort.toString(),
       },
       detached: false,
@@ -461,6 +637,8 @@ export class TauriManager {
           status: hasErrors ? 'build_error' : 'launched',
           message: hasErrors ? 'App started with build errors' : 'App is ready',
           port: this.vitePort,
+          portOverrideApplied,
+          warnings: warnings.length > 0 ? warnings : undefined,
           buildHealth: {
             frontend: 'unknown', // Will be determined by frontend logs
             backend: hasErrors ? 'error' : 'healthy',
@@ -474,6 +652,8 @@ export class TauriManager {
           status: 'build_error',
           message: e instanceof Error ? e.message : 'Build failed',
           port: this.vitePort,
+          portOverrideApplied,
+          warnings: warnings.length > 0 ? warnings : undefined,
           buildHealth: {
             frontend: 'unknown',
             backend: 'error',
@@ -488,6 +668,8 @@ export class TauriManager {
       status: 'launched',
       message: 'App launched (not waiting for ready)',
       port: this.vitePort,
+      portOverrideApplied,
+      warnings: warnings.length > 0 ? warnings : undefined,
       buildHealth: {
         frontend: 'unknown',
         backend: 'unknown',
