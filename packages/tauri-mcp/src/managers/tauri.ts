@@ -586,8 +586,8 @@ export class TauriManager {
       stdio: ['ignore', 'pipe', 'pipe'],
       env: {
         ...process.env,
-        // Use appDir as project root for Rust plugin - this is where socket will be created
-        TAURI_MCP_PROJECT_ROOT: this.appConfig.appDir,
+        // Use absolute appDir as project root for Rust plugin - this is where socket will be created
+        TAURI_MCP_PROJECT_ROOT: path.resolve(this.appConfig.appDir),
         TAURI_MCP_DEVTOOLS: devtools ? '1' : '',
         // Keep VITE_PORT for backwards compatibility
         VITE_PORT: this.vitePort.toString(),

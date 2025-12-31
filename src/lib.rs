@@ -561,33 +561,9 @@ async fn eval_result(state: State<'_, Arc<McpState>>, result: EvalResult) -> Res
 /// Get the project root directory
 /// Returns the Tauri app project root (parent of src-tauri if running from src-tauri)
 fn get_project_root() -> std::path::PathBuf {
-    // Check environment variable first
+    // Check environment variable first (should be absolute path from MCP server)
     if let Ok(root) = std::env::var("TAURI_MCP_PROJECT_ROOT") {
-        let path = std::path::PathBuf::from(&root);
-
-        // If absolute path, use it directly
-        if path.is_absolute() {
-            return path;
-        }
-
-        // For relative paths, we need to resolve from the monorepo root
-        // If we're in src-tauri, go up TWO levels (src-tauri -> app -> monorepo root)
-        // then join the relative path
-        if let Ok(cwd) = std::env::current_dir() {
-            let monorepo_root = if cwd.ends_with("src-tauri") {
-                // Go up two levels: src-tauri -> packages/app -> monorepo root
-                cwd.parent()
-                    .and_then(|p| p.parent())
-                    .map(|p| p.to_path_buf())
-                    .unwrap_or(cwd.clone())
-            } else {
-                cwd.clone()
-            };
-
-            let absolute = monorepo_root.join(&path);
-            return absolute.canonicalize().unwrap_or(absolute);
-        }
-        return path;
+        return std::path::PathBuf::from(root);
     }
 
     // Default behavior: get current directory
