@@ -111,7 +111,10 @@ pub const SNAPSHOT_JS: &str = r#"
     }
 
     function isVisible(el) {
-        if (!el.offsetParent && el.tagName.toLowerCase() !== 'body') return false;
+        if (!el.offsetParent && el.tagName.toLowerCase() !== 'body') {
+            const pos = window.getComputedStyle(el).position;
+            if (pos !== 'fixed' && pos !== 'sticky') return false;
+        }
         const style = window.getComputedStyle(el);
         if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
         return true;
