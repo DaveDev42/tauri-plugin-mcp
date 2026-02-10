@@ -1,0 +1,36 @@
+#!/bin/sh
+
+# Pre-commit hook: ensure dist/ stays in sync with TypeScript sources
+
+# Fast path: skip if no .ts files under packages/*/src/ are staged
+STAGED_TS=$(git diff --cached --name-only --diff-filter=ACMR -- 'packages/*/src/**/*.ts')
+if [ -z "$STAGED_TS" ]; then
+  exit 0
+fi
+
+echo "[pre-commit] TypeScript source changes detected, rebuilding..."
+pnpm build
+
+# Check for modified tracked dist files
+MODIFIED_DIST=$(git diff --name-only -- 'packages/*/dist/')
+
+# Check for new untracked dist files
+UNTRACKED_DIST=$(git ls-files --others --exclude-standard -- 'packages/*/dist/')
+
+if [ -n "$MODIFIED_DIST" ] || [ -n "$UNTRACKED_DIST" ]; then
+  echo ""
+  echo "ERROR: dist/ is out of sync with source after build."
+  echo ""
+  if [ -n "$MODIFIED_DIST" ]; then
+    echo "Modified:"
+    echo "$MODIFIED_DIST" | sed 's/^/  /'
+  fi
+  if [ -n "$UNTRACKED_DIST" ]; then
+    echo "New:"
+    echo "$UNTRACKED_DIST" | sed 's/^/  /'
+  fi
+  echo ""
+  echo "Run: git add packages/*/dist/"
+  echo "Then retry your commit."
+  exit 1
+fi

@@ -1,0 +1,361 @@
+import { invoke, Channel } from '@tauri-apps/api/core';
+import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
+// Original function references (preserved across HMR reloads)
+let originalConsole = null;
+let originalFetch = null;
+let originalXhrOpen = null;
+let originalXhrSend = null;
+/**
+ * Initialize the MCP bridge for Tauri plugin communication.
+ *
+ * Call this once in your app's entry point (e.g., main.tsx):
+ *
+ * ```typescript
+ * import { initMcpBridge } from 'tauri-plugin-mcp-api';
+ * initMcpBridge();
+ * ```
+ */
+export async function initMcpBridge() {
+    // Prevent double initialization
+    if (window.__MCP_BRIDGE__?.initialized) {
+        console.warn('[tauri-plugin-mcp] Bridge already initialized');
+        return;
+    }
+    // Create channel for receiving eval requests from Rust
+    const channel = new Channel();
+    // Initialize state
+    window.__MCP_BRIDGE__ = {
+        initialized: true,
+        channel,
+    };
+    // Initialize ref map for accessibility tree
+    window.__MCP_REF_MAP__ = new Map();
+    // Get and store window label for multi-window support
+    try {
+        const currentWindow = getCurrentWebviewWindow();
+        window.__MCP_WINDOW_LABEL__ = currentWindow.label;
+    }
+    catch {
+        // Fallback if webviewWindow API is not available
+        window.__MCP_WINDOW_LABEL__ = 'main';
+    }
+    // Initialize log storage (preserve existing logs across HMR reloads)
+    window.__MCP_CONSOLE_LOGS__ = window.__MCP_CONSOLE_LOGS__ || [];
+    window.__MCP_NETWORK_LOGS__ = window.__MCP_NETWORK_LOGS__ || [];
+    window.__MCP_BUILD_LOGS__ = window.__MCP_BUILD_LOGS__ || [];
+    window.__MCP_HMR_UPDATES__ = window.__MCP_HMR_UPDATES__ || [];
+    window.__MCP_HMR_STATUS__ = window.__MCP_HMR_STATUS__ || 'unknown';
+    window.__MCP_HMR_LAST_SUCCESS__ = window.__MCP_HMR_LAST_SUCCESS__ || null;
+    // Set up console log capture
+    setupConsoleCapture();
+    // Set up network log capture
+    setupNetworkCapture();
+    // Set up Vite HMR monitoring
+    setupViteHMRMonitoring();
+    // Set up eval function that Rust will call via invoke
+    window.__MCP_EVAL__ = async (requestId, script) => {
+        let result;
+        try {
+            // Execute the script
+            const fn = new Function(`return (async () => { ${script} })();`);
+            const value = await fn();
+            result = {
+                requestId,
+                success: true,
+                value,
+            };
+        }
+        catch (e) {
+            result = {
+                requestId,
+                success: false,
+                error: e instanceof Error ? e.message : String(e),
+            };
+        }
+        // Send result back to Rust
+        await invoke('plugin:mcp|eval_result', { result });
+    };
+    // Register the bridge with the Rust plugin
+    await invoke('plugin:mcp|register_bridge');
+    // Register HMR cleanup handler
+    if (import.meta.hot) {
+        import.meta.hot.dispose(() => {
+            cleanupMcpBridge();
+            window.__MCP_BRIDGE__.initialized = false;
+        });
+    }
+    console.log('[tauri-plugin-mcp] Bridge initialized');
+}
+const MAX_LOG_ENTRIES = 1000;
+/**
+ * Clean up MCP bridge overrides (restore original functions)
+ * Called before HMR module replacement
+ */
+function cleanupMcpBridge() {
+    // Restore console methods
+    if (originalConsole) {
+        const levels = ['log', 'info', 'warn', 'error', 'debug'];
+        for (const level of levels) {
+            if (originalConsole[level]) {
+                console[level] = originalConsole[level];
+            }
+        }
+    }
+    // Restore fetch
+    if (originalFetch) {
+        window.fetch = originalFetch;
+    }
+    // Restore XMLHttpRequest
+    if (originalXhrOpen) {
+        XMLHttpRequest.prototype.open = originalXhrOpen;
+    }
+    if (originalXhrSend) {
+        XMLHttpRequest.prototype.send = originalXhrSend;
+    }
+    console.log('[tauri-plugin-mcp] Bridge cleaned up for HMR');
+}
+/**
+ * Set up console.log/warn/error/info/debug capture
+ */
+function setupConsoleCapture() {
+    const levels = ['log', 'info', 'warn', 'error', 'debug'];
+    // Store original functions only once (first initialization)
+    if (!originalConsole) {
+        originalConsole = {};
+        for (const level of levels) {
+            originalConsole[level] = console[level].bind(console);
+        }
+    }
+    for (const level of levels) {
+        console[level] = (...args) => {
+            // Store the log entry
+            window.__MCP_CONSOLE_LOGS__.push({
+                level,
+                args: args.map(serializeArg),
+                timestamp: Date.now(),
+            });
+            // Keep only last N entries
+            if (window.__MCP_CONSOLE_LOGS__.length > MAX_LOG_ENTRIES) {
+                window.__MCP_CONSOLE_LOGS__.shift();
+            }
+            // Call original (always use the preserved original)
+            originalConsole[level](...args);
+        };
+    }
+}
+/**
+ * Serialize console argument for storage
+ */
+function serializeArg(arg) {
+    if (arg === null || arg === undefined) {
+        return arg;
+    }
+    if (typeof arg === 'string' || typeof arg === 'number' || typeof arg === 'boolean') {
+        return arg;
+    }
+    if (arg instanceof Error) {
+        return {
+            __type: 'Error',
+            name: arg.name,
+            message: arg.message,
+            stack: arg.stack,
+        };
+    }
+    if (arg instanceof HTMLElement) {
+        return {
+            __type: 'HTMLElement',
+            tagName: arg.tagName,
+            id: arg.id || undefined,
+            className: arg.className || undefined,
+        };
+    }
+    try {
+        // Try to serialize as JSON
+        return JSON.parse(JSON.stringify(arg));
+    }
+    catch {
+        // Fallback to string representation
+        return String(arg);
+    }
+}
+/**
+ * Set up fetch and XMLHttpRequest capture
+ */
+function setupNetworkCapture() {
+    // Store original functions only once (first initialization)
+    if (!originalFetch) {
+        originalFetch = window.fetch.bind(window);
+    }
+    if (!originalXhrOpen) {
+        originalXhrOpen = XMLHttpRequest.prototype.open;
+    }
+    if (!originalXhrSend) {
+        originalXhrSend = XMLHttpRequest.prototype.send;
+    }
+    // Capture fetch
+    window.fetch = async (input, init) => {
+        const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+        const method = init?.method || 'GET';
+        const startTime = Date.now();
+        try {
+            const response = await originalFetch(input, init);
+            window.__MCP_NETWORK_LOGS__.push({
+                type: 'fetch',
+                method,
+                url,
+                status: response.status,
+                statusText: response.statusText,
+                duration: Date.now() - startTime,
+                timestamp: startTime,
+            });
+            // Keep only last N entries
+            if (window.__MCP_NETWORK_LOGS__.length > MAX_LOG_ENTRIES) {
+                window.__MCP_NETWORK_LOGS__.shift();
+            }
+            return response;
+        }
+        catch (error) {
+            window.__MCP_NETWORK_LOGS__.push({
+                type: 'fetch',
+                method,
+                url,
+                error: error instanceof Error ? error.message : String(error),
+                duration: Date.now() - startTime,
+                timestamp: startTime,
+            });
+            if (window.__MCP_NETWORK_LOGS__.length > MAX_LOG_ENTRIES) {
+                window.__MCP_NETWORK_LOGS__.shift();
+            }
+            throw error;
+        }
+    };
+    // Capture XMLHttpRequest
+    const xhrOpenRef = originalXhrOpen;
+    const xhrSendRef = originalXhrSend;
+    XMLHttpRequest.prototype.open = function (method, url, async, username, password) {
+        this.__mcp_method = method;
+        this.__mcp_url = typeof url === 'string' ? url : url.href;
+        return xhrOpenRef.call(this, method, url, async ?? true, username, password);
+    };
+    XMLHttpRequest.prototype.send = function (body) {
+        const xhr = this;
+        const startTime = Date.now();
+        const handleEnd = () => {
+            window.__MCP_NETWORK_LOGS__.push({
+                type: 'xhr',
+                method: xhr.__mcp_method || 'GET',
+                url: xhr.__mcp_url || '',
+                status: xhr.status,
+                statusText: xhr.statusText,
+                duration: Date.now() - startTime,
+                timestamp: startTime,
+            });
+            if (window.__MCP_NETWORK_LOGS__.length > MAX_LOG_ENTRIES) {
+                window.__MCP_NETWORK_LOGS__.shift();
+            }
+        };
+        const handleError = () => {
+            window.__MCP_NETWORK_LOGS__.push({
+                type: 'xhr',
+                method: xhr.__mcp_method || 'GET',
+                url: xhr.__mcp_url || '',
+                error: 'Network error',
+                duration: Date.now() - startTime,
+                timestamp: startTime,
+            });
+            if (window.__MCP_NETWORK_LOGS__.length > MAX_LOG_ENTRIES) {
+                window.__MCP_NETWORK_LOGS__.shift();
+            }
+        };
+        this.addEventListener('load', handleEnd);
+        this.addEventListener('error', handleError);
+        return xhrSendRef.call(this, body);
+    };
+}
+/**
+ * Check if the MCP bridge is initialized
+ */
+export function isBridgeInitialized() {
+    return window.__MCP_BRIDGE__?.initialized ?? false;
+}
+/**
+ * Set up Vite HMR monitoring to capture build errors, connection status, and update reasons
+ */
+function setupViteHMRMonitoring() {
+    // Check if we're in Vite dev mode with HMR support
+    if (typeof import.meta === 'undefined' || !import.meta.hot) {
+        console.log('[tauri-plugin-mcp] Vite HMR not available (production mode or non-Vite build)');
+        return;
+    }
+    const hot = import.meta.hot;
+    // Track WebSocket connection status
+    hot.on('vite:ws:connect', () => {
+        window.__MCP_HMR_STATUS__ = 'connected';
+        console.log('[tauri-plugin-mcp] HMR WebSocket connected');
+    });
+    hot.on('vite:ws:disconnect', () => {
+        window.__MCP_HMR_STATUS__ = 'disconnected';
+        console.log('[tauri-plugin-mcp] HMR WebSocket disconnected');
+    });
+    // Capture HMR update - records which files triggered the hot reload
+    hot.on('vite:beforeUpdate', (payload) => {
+        const data = payload;
+        if (data.updates && data.updates.length > 0) {
+            const files = data.updates.map((u) => u.path);
+            const uniqueFiles = [...new Set(files)];
+            window.__MCP_HMR_UPDATES__.push({
+                type: 'hmr-update',
+                files: uniqueFiles,
+                timestamp: Date.now(),
+            });
+            // Keep only last N entries
+            if (window.__MCP_HMR_UPDATES__.length > MAX_LOG_ENTRIES) {
+                window.__MCP_HMR_UPDATES__.shift();
+            }
+            console.log(`[tauri-plugin-mcp] HMR update triggered by: ${uniqueFiles.join(', ')}`);
+        }
+    });
+    // Capture full reload - when HMR can't handle the change
+    hot.on('vite:beforeFullReload', (payload) => {
+        const data = payload;
+        const files = data.path ? [data.path] : ['unknown'];
+        window.__MCP_HMR_UPDATES__.push({
+            type: 'full-reload',
+            files,
+            timestamp: Date.now(),
+        });
+        // Keep only last N entries
+        if (window.__MCP_HMR_UPDATES__.length > MAX_LOG_ENTRIES) {
+            window.__MCP_HMR_UPDATES__.shift();
+        }
+        console.log(`[tauri-plugin-mcp] Full reload triggered by: ${files.join(', ')}`);
+    });
+    // Track successful HMR updates
+    hot.on('vite:afterUpdate', () => {
+        window.__MCP_HMR_LAST_SUCCESS__ = Date.now();
+        // Clear build errors on successful update
+        window.__MCP_BUILD_LOGS__ = window.__MCP_BUILD_LOGS__.filter((log) => log.level !== 'error');
+    });
+    // Capture build errors
+    hot.on('vite:error', (data) => {
+        const event = data;
+        const err = event.err || {};
+        window.__MCP_BUILD_LOGS__.push({
+            source: 'vite',
+            level: 'error',
+            message: err.message || 'Unknown Vite error',
+            file: err.loc?.file,
+            line: err.loc?.line,
+            column: err.loc?.column,
+            timestamp: Date.now(),
+        });
+        // Keep only last N entries
+        if (window.__MCP_BUILD_LOGS__.length > MAX_LOG_ENTRIES) {
+            window.__MCP_BUILD_LOGS__.shift();
+        }
+        console.error('[tauri-plugin-mcp] Vite build error captured:', err.message);
+    });
+    // Mark as connected initially if HMR is available
+    window.__MCP_HMR_STATUS__ = 'connected';
+    console.log('[tauri-plugin-mcp] Vite HMR monitoring initialized');
+}

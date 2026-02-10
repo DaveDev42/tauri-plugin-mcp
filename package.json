@@ -8,6 +8,7 @@
     "url": "https://github.com/DaveDev42/tauri-plugin-mcp.git"
   },
   "license": "MIT",
+  "packageManager": "pnpm@10.29.2",
   "type": "module",
   "bin": {
     "tauri-mcp": "./packages/tauri-mcp/dist/index.js"
@@ -26,7 +27,7 @@
   "types": "./packages/tauri-plugin-mcp-api/dist/index.d.ts",
   "scripts": {
     "build": "pnpm -r build",
-    "prepare": "pnpm build",
+    "prepare": "git config core.hooksPath .githooks 2>/dev/null; pnpm build",
     "typecheck": "pnpm -r typecheck"
   },
   "dependencies": {
