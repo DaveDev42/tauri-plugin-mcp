@@ -67,6 +67,7 @@ export class TauriManager {
   private vitePort: number;
   private outputBuffer: string[] = [];
   private detectedPipePath: string | null = null;
+  private detectedUnixSocketPath: string | null = null;
   private rustRebuildEvents: RustRebuildEvent[] = [];
 
   constructor(projectRoot?: string) {
@@ -336,7 +337,12 @@ export class TauriManager {
       console.error('[tauri-mcp] Warning: pipe path not yet detected');
       return '\\\\.\\pipe\\tauri-mcp-unknown';
     }
-    // Unix socket file in app directory (where Rust plugin runs)
+    // Unix: prefer detected path from Rust plugin logs
+    if (this.detectedUnixSocketPath) {
+      return this.detectedUnixSocketPath;
+    }
+
+    // Fallback: calculate path (may not match Rust in edge cases)
     return TauriManager.getUnixSocketPath(socketDir);
   }
 
@@ -400,6 +406,20 @@ export class TauriManager {
     for (const line of this.outputBuffer) {
       // Match the full_path line from Rust debug output (with [stderr] prefix)
       const match = line.match(/\[tauri-plugin-mcp\]\s+full_path:\s*(\\\\\.\\pipe\\[^\s]+)/);
+      if (match) {
+        return match[1];
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Parse Unix socket path from Rust plugin output
+   * Looks for: [tauri-plugin-mcp] Starting debug server at: /path/to/socket.sock
+   */
+  private parseUnixSocketPathFromLogs(): string | null {
+    for (const line of this.outputBuffer) {
+      const match = line.match(/\[tauri-plugin-mcp\] Starting debug server at: (\/[^\s]+\.sock)/);
       if (match) {
         return match[1];
       }
@@ -542,8 +562,9 @@ export class TauriManager {
 
     console.error(`[tauri-mcp] Build cache ${hasCachedBuild ? 'found' : 'not found'}, using ${timeoutSecs}s timeout`);
 
-    // Reset detected pipe path
+    // Reset detected paths
     this.detectedPipePath = null;
+    this.detectedUnixSocketPath = null;
 
     // Clean up stale socket file (Unix only)
     if (process.platform !== 'win32') {
@@ -724,6 +745,15 @@ export class TauriManager {
         throw new Error(`App process exited unexpectedly\n\n${logs}`);
       }
 
+      // Try to detect Unix socket path from Rust plugin logs
+      if (process.platform !== 'win32' && !this.detectedUnixSocketPath) {
+        const unixPath = this.parseUnixSocketPathFromLogs();
+        if (unixPath) {
+          this.detectedUnixSocketPath = unixPath;
+          console.error(`[tauri-mcp] Detected Unix socket path from logs: ${unixPath}`);
+        }
+      }
+
       // Check if socket is ready (use async check for Windows named pipes)
       const socketReady = process.platform === 'win32'
         ? await this.isSocketReadyAsync()
@@ -838,6 +868,7 @@ export class TauriManager {
         this.process = null;
         this.status = 'not_running';
         this.detectedPipePath = null;
+        this.detectedUnixSocketPath = null;
         resolve({ message: 'App stopped' });
       });
 
@@ -871,6 +902,7 @@ export class TauriManager {
           this.process = null;
           this.status = 'not_running';
           this.detectedPipePath = null;
+          this.detectedUnixSocketPath = null;
           resolve({ message: 'App force stopped' });
         }
       }, 5000);
@@ -930,6 +962,7 @@ export class TauriManager {
     this.process = null;
     this.status = 'not_running';
     this.detectedPipePath = null;
+    this.detectedUnixSocketPath = null;
   }
 
   private cleanupOrphanProcessesSync(): void {
@@ -975,7 +1008,7 @@ export class TauriManager {
 
   getStatus(): AppStatus {
     if (this.process) {
-      if (this.detectedPipePath || this.isSocketReady()) {
+      if (this.detectedPipePath || this.detectedUnixSocketPath || this.isSocketReady()) {
         this.status = 'running';
       } else {
         this.status = 'starting';
