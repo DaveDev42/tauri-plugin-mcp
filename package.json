@@ -9,6 +9,9 @@
   },
   "license": "MIT",
   "type": "module",
+  "bin": {
+    "tauri-mcp": "./packages/tauri-mcp/dist/index.js"
+  },
   "exports": {
     ".": {
       "import": "./packages/tauri-plugin-mcp-api/dist/index.js",

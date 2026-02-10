@@ -43,10 +43,7 @@ pnpm add github:DaveDev42/tauri-plugin-mcp#main
 
 ### 3. MCP Server
 
-The MCP server is included in the package at:
-```
-node_modules/tauri-plugin-mcp/packages/tauri-mcp/dist/index.js
-```
+The MCP server binary (`tauri-mcp`) is automatically available after installation. No additional setup required.
 
 ## Setup
 
@@ -109,11 +106,32 @@ Add to `.mcp.json` in your project root:
 {
   "mcpServers": {
     "tauri-mcp": {
-      "command": "node",
-      "args": ["node_modules/tauri-plugin-mcp/packages/tauri-mcp/dist/index.js"],
+      "command": "npx",
+      "args": ["tauri-mcp"],
       "env": {
         "TAURI_PROJECT_ROOT": "."
       }
+    }
+  }
+}
+```
+
+> **Note:** pnpm users can also use `pnpx tauri-mcp` or `pnpm exec tauri-mcp`.
+
+### Monorepo Configuration
+
+If the package is installed in a subdirectory (e.g., `apps/desktop`):
+
+```json
+{
+  "mcpServers": {
+    "tauri-mcp": {
+      "command": "npx",
+      "args": ["tauri-mcp"],
+      "env": {
+        "TAURI_PROJECT_ROOT": "./apps/desktop"
+      },
+      "cwd": "./apps/desktop"
     }
   }
 }
