@@ -8,6 +8,7 @@
     "url": "https://github.com/DaveDev42/tauri-plugin-mcp.git"
   },
   "license": "MIT",
+  "packageManager": "pnpm@10.29.2",
   "type": "module",
   "bin": {
     "tauri-mcp": "./packages/tauri-mcp/dist/index.js"

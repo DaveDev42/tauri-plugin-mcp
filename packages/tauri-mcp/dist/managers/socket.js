@@ -202,12 +202,16 @@ export class SocketManager {
         return result;
     }
     async screenshot(options) {
-        // On macOS, use screencapture command which doesn't require Screen Recording permission
-        // when capturing by window ID (the app captures its own window)
+        // On macOS, try screencapture CLI first (no Screen Recording permission needed)
+        // If it fails, fall through to native (xcap → html2canvas)
         if (os.platform() === 'darwin') {
-            return this.screenshotMacOS(options);
+            try {
+                return await this.screenshotMacOS(options);
+            }
+            catch {
+                // screencapture CLI failed, fall through to native
+            }
         }
-        // On other platforms, use native screenshot via Rust
         return this.screenshotNative(options);
     }
     async screenshotMacOS(options) {
