@@ -317,6 +317,7 @@ export class TauriManager {
   /**
    * Get the socket path - uses appDir where the Tauri app actually runs
    * On Windows, uses detected path from Rust logs
+   * On Unix, falls back to /tmp/ with hash if path exceeds SUN_LEN (104 bytes)
    */
   getSocketPath(): string {
     // Use appDir instead of projectRoot - this is where Rust plugin creates the socket
@@ -336,7 +337,42 @@ export class TauriManager {
       return '\\\\.\\pipe\\tauri-mcp-unknown';
     }
     // Unix socket file in app directory (where Rust plugin runs)
-    return path.join(socketDir, SOCKET_FILE_NAME);
+    return TauriManager.getUnixSocketPath(socketDir);
+  }
+
+  /**
+   * Get Unix socket path, falling back to /tmp/ if path is too long for SUN_LEN
+   * Uses same FNV-1a hash algorithm as the Rust plugin for consistency
+   */
+  static getUnixSocketPath(socketDir: string): string {
+    const MAX_SOCKET_PATH_LEN = 104; // macOS SUN_LEN limit
+    const directPath = path.join(socketDir, SOCKET_FILE_NAME);
+
+    if (Buffer.byteLength(directPath, 'utf-8') <= MAX_SOCKET_PATH_LEN) {
+      return directPath;
+    }
+
+    // Path too long - use /tmp/ with FNV-1a hash (matches Rust plugin)
+    const hash = TauriManager.fnv1aHash(socketDir);
+    const tmpPath = `/tmp/tauri-mcp-${hash}.sock`;
+    console.error(
+      `[tauri-mcp] Socket path too long (${Buffer.byteLength(directPath, 'utf-8')} > ${MAX_SOCKET_PATH_LEN}), using: ${tmpPath}`
+    );
+    return tmpPath;
+  }
+
+  /**
+   * FNV-1a hash - same algorithm as Rust side for deterministic socket paths
+   */
+  private static fnv1aHash(data: string): string {
+    let hash = BigInt('0xcbf29ce484222325');
+    const fnvPrime = BigInt('0x100000001b3');
+    const bytes = Buffer.from(data, 'utf-8');
+    for (const byte of bytes) {
+      hash ^= BigInt(byte);
+      hash = BigInt.asUintN(64, hash * fnvPrime);
+    }
+    return hash.toString(16);
   }
 
   /**

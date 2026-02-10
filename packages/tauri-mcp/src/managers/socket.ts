@@ -4,6 +4,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
+import { TauriManager } from './tauri.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -53,9 +54,9 @@ export class SocketManager {
       return this.socketPathProvider();
     }
 
-    // Unix: use socket file in project root
+    // Unix: use socket file in project root (with SUN_LEN fallback)
     if (process.platform !== 'win32') {
-      return path.join(this.projectRoot, SOCKET_FILE_NAME);
+      return TauriManager.getUnixSocketPath(this.projectRoot);
     }
 
     // Windows fallback - should not happen if provider is set correctly

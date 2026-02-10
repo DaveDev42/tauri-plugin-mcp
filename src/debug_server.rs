@@ -36,13 +36,45 @@ impl DebugServer {
         }
     }
 
+    /// Maximum Unix socket path length (macOS: 104, Linux: 108)
+    #[cfg(unix)]
+    const MAX_SOCKET_PATH_LEN: usize = 104;
+
     /// Get platform-specific socket path
+    /// Falls back to /tmp/ with a hash if the project path is too long for Unix sockets
     #[cfg(unix)]
     fn get_socket_path(project_root: &Path) -> String {
-        project_root
+        let direct_path = project_root
             .join(SOCKET_FILE_NAME)
             .to_string_lossy()
-            .to_string()
+            .to_string();
+
+        if direct_path.len() <= Self::MAX_SOCKET_PATH_LEN {
+            return direct_path;
+        }
+
+        // Path too long for Unix socket - use /tmp/ with a hash for uniqueness
+        // Uses simple FNV-1a hash (same algorithm used in Node.js side for consistency)
+        let path_bytes = project_root.to_string_lossy();
+        let hash = Self::fnv1a_hash(path_bytes.as_bytes());
+        let tmp_path = format!("/tmp/tauri-mcp-{:x}.sock", hash);
+        eprintln!(
+            "[tauri-plugin-mcp] Socket path too long ({} > {}), using: {}",
+            direct_path.len(),
+            Self::MAX_SOCKET_PATH_LEN,
+            tmp_path
+        );
+        tmp_path
+    }
+
+    /// FNV-1a hash - simple, deterministic, and easy to implement in both Rust and JS
+    fn fnv1a_hash(data: &[u8]) -> u64 {
+        let mut hash: u64 = 0xcbf29ce484222325;
+        for &byte in data {
+            hash ^= byte as u64;
+            hash = hash.wrapping_mul(0x100000001b3);
+        }
+        hash
     }
 
     #[cfg(windows)]
