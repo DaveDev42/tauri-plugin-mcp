@@ -218,6 +218,19 @@ The JS bridge isn't running. Check:
 - Wait for app to fully load (use `wait_for_ready: true`)
 - Check if bridge initialized (look for `[MCP]` logs in console)
 
+## Development
+
+After cloning, `pnpm install` automatically configures git hooks and builds the project.
+
+The `dist/` directories are committed to the repo so that git-based installs (`pnpm add github:...`) work without a build step. A pre-commit hook verifies that `dist/` stays in sync with TypeScript sources — if the hook blocks your commit, run:
+
+```bash
+pnpm build
+git add packages/*/dist/
+```
+
+Then retry your commit.
+
 ## License
 
 MIT OR Apache-2.0
