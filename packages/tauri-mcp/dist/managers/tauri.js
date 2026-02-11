@@ -248,7 +248,7 @@ export class TauriManager {
      */
     getSocketPath() {
         // Use appDir instead of projectRoot - this is where Rust plugin creates the socket
-        const socketDir = this.appConfig?.appDir ?? this.projectRoot;
+        const socketDir = path.resolve(this.appConfig?.appDir ?? this.projectRoot);
         if (process.platform === 'win32') {
             // Use detected pipe path from Rust plugin logs if available
             if (this.detectedPipePath) {
