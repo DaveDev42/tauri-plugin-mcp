@@ -98,6 +98,117 @@ if (import.meta.env.DEV) {
 }
 ```
 
+## Production-Safe Setup (Optional Dependency)
+
+The basic setup above includes MCP in all builds. For production apps, you likely want MCP **only in development** and completely stripped from release binaries.
+
+This approach uses Cargo's optional dependency feature so the plugin is compiled in only when explicitly requested.
+
+### 1. Cargo optional dependency (src-tauri/Cargo.toml)
+
+```toml
+[features]
+default = []
+dev-tools = ["dep:tauri-plugin-mcp"]
+
+[dependencies]
+tauri-plugin-mcp = { git = "https://github.com/DaveDev42/tauri-plugin-mcp", optional = true }
+```
+
+### 2. Conditional plugin registration (src-tauri/src/lib.rs)
+
+```rust
+pub fn run() {
+    let mut builder = tauri::Builder::default();
+
+    #[cfg(feature = "dev-tools")]
+    {
+        builder = builder.plugin(tauri_plugin_mcp::init());
+    }
+
+    builder
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application");
+}
+```
+
+### 3. Capabilities file split
+
+Separate `mcp:default` into its own capability file so it can be toggled at build time.
+
+**`capabilities/default.json`** — always active, no MCP permission:
+
+```json
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}
+```
+
+**`capabilities/.dev-tools.json.disabled`** — MCP permission template (git-tracked):
+
+```json
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "dev-tools",
+  "windows": ["main"],
+  "permissions": ["mcp:default"]
+}
+```
+
+**`capabilities/dev-tools.json`** — add to `.gitignore` (generated at build time):
+
+```gitignore
+# Dev-tools capability (generated from .disabled at build time)
+src-tauri/capabilities/dev-tools.json
+```
+
+### 4. build.rs — conditional capabilities management
+
+`build.rs` copies the template into place when the feature is enabled, and removes it otherwise:
+
+```rust
+fn main() {
+    let dev_tools_cap = std::path::Path::new("capabilities/dev-tools.json");
+    let source_path = std::path::Path::new("capabilities/.dev-tools.json.disabled");
+
+    if std::env::var("CARGO_FEATURE_DEV_TOOLS").is_ok() {
+        // Copy .disabled → active (skip if already identical to avoid rebuild churn)
+        let should_copy = if dev_tools_cap.exists() {
+            std::fs::read(source_path).ok() != std::fs::read(dev_tools_cap).ok()
+        } else {
+            true
+        };
+        if should_copy {
+            std::fs::copy(source_path, dev_tools_cap)
+                .expect("Failed to copy dev-tools capability file");
+        }
+    } else if dev_tools_cap.exists() {
+        std::fs::remove_file(dev_tools_cap).ok();
+    }
+
+    tauri_build::try_build(
+        tauri_build::Attributes::default()
+    ).expect("Failed to build tauri");
+}
+```
+
+### 5. Dev script (package.json)
+
+```json
+{
+  "scripts": {
+    "dev": "tauri dev --features dev-tools"
+  }
+}
+```
+
+Now `pnpm dev` enables MCP, while `tauri build` (without the feature) produces a clean release with zero MCP code.
+
+> **Note:** The frontend bridge guard (`import.meta.env.DEV`) from the [basic setup](#3-initialize-the-bridge-maintsx) still applies — it prevents the bridge from initializing even if the plugin were somehow present at runtime.
+
 ## MCP Server Configuration
 
 Add to `.mcp.json` in your project root:
