@@ -2,6 +2,7 @@ import * as net from 'net';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import * as crypto from 'crypto';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { TauriManager } from './tauri.js';
@@ -276,7 +277,7 @@ export class SocketManager {
     const windowId = windowInfo.window_id;
 
     // Create temp file for screenshot
-    const tmpFile = path.join(os.tmpdir(), `tauri-mcp-screenshot-${Date.now()}.png`);
+    const tmpFile = path.join(os.tmpdir(), `tauri-mcp-screenshot-${process.pid}-${crypto.randomUUID()}.png`);
 
     try {
       // Use screencapture command with window ID
