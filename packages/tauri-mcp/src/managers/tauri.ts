@@ -3,6 +3,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as net from 'net';
 
+// test: verify pre-commit hook auto-stages dist
+
 export interface TauriAppConfig {
   appDir: string;
   binaryName: string;
