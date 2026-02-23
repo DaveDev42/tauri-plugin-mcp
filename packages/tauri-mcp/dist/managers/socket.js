@@ -332,6 +332,10 @@ export class SocketManager {
         const result = await this.sendCommand('get_frontend_logs', params);
         return result;
     }
+    async setTitlePrefix(prefix) {
+        const result = await this.sendCommand('set_title_prefix', { prefix });
+        return result;
+    }
     async getHmrUpdates(clear, windowLabel) {
         const params = { clear: clear ?? false };
         if (windowLabel)

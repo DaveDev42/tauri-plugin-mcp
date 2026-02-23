@@ -405,6 +405,11 @@ export class SocketManager {
     };
   }
 
+  async setTitlePrefix(prefix: string | null): Promise<{ updated: number; prefix: string | null }> {
+    const result = await this.sendCommand('set_title_prefix', { prefix }) as { updated: number; prefix: string | null };
+    return result;
+  }
+
   async getHmrUpdates(clear?: boolean, windowLabel?: string): Promise<{
     updates: Array<{ type: 'hmr-update' | 'full-reload'; files: string[]; timestamp: number }>;
   }> {

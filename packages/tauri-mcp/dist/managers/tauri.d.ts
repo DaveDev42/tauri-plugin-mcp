@@ -55,6 +55,7 @@ export declare class TauriManager {
     private detectedPipePath;
     private detectedUnixSocketPath;
     private rustRebuildEvents;
+    private launchedAt;
     constructor(projectRoot?: string);
     private detectExistingPort;
     private generatePort;
@@ -146,10 +147,27 @@ export declare class TauriManager {
      * Uses spawnSync to ensure cleanup happens before Node.js exits
      */
     stopSync(): void;
+    /**
+     * Find the PID of the process owning the Unix domain socket.
+     * Uses `lsof -t <socketPath>` to find socket owners.
+     * Returns null on Windows or if no owner found.
+     */
+    private findSocketOwnerPid;
+    /**
+     * Force-stop an external app detected on the socket.
+     * 1. Find PID via lsof
+     * 2. Kill the process group
+     * 3. Clean up socket file
+     * 4. Wait briefly for cleanup
+     */
+    private forceStopExternalApp;
     private cleanupOrphanProcessesSync;
     private cleanupOrphanProcesses;
     getStatus(): AppStatus;
     getAppConfig(): TauriAppConfig | null;
+    getProcessPid(): number | null;
+    getLaunchedAt(): number | null;
+    getProjectRoot(): string;
     /**
      * Get captured app logs (stdout/stderr)
      * @param limit Maximum number of lines to return (default: all)

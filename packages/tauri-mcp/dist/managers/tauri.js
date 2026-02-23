@@ -1,4 +1,4 @@
-import { spawn, spawnSync } from 'child_process';
+import { spawn, spawnSync, execSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as net from 'net';
@@ -13,6 +13,7 @@ export class TauriManager {
     detectedPipePath = null;
     detectedUnixSocketPath = null;
     rustRebuildEvents = [];
+    launchedAt = null;
     constructor(projectRoot) {
         this.projectRoot = projectRoot ?? process.env.TAURI_PROJECT_ROOT ?? process.cwd();
         this.appConfig = this.detectTauriApp();
@@ -445,12 +446,20 @@ export class TauriManager {
             };
         }
         // Check if another instance already has an app running (external process)
-        // This prevents duplicate launches that cause connection issues
+        // Auto-kill stale app instead of throwing — the socket is worktree-scoped,
+        // so any app responding on it belongs to this same worktree's stale session
         const externalAppRunning = await this.checkExternalAppRunning();
         if (externalAppRunning) {
-            throw new Error('Another Tauri app instance is already running and responding on the socket. ' +
-                'This can happen when launch_app is called from a different MCP session. ' +
-                'Please call stop_app first to terminate the existing app, then try launch_app again.');
+            console.error('[tauri-mcp] Stale external app detected on socket, force-stopping...');
+            await this.forceStopExternalApp();
+            // Verify the socket is gone after force-stop
+            const stillAlive = await this.checkExternalAppRunning();
+            if (stillAlive) {
+                throw new Error('Failed to stop the stale Tauri app instance on the socket. ' +
+                    'The process may require manual termination. ' +
+                    'Try: lsof -t ' + this.getSocketPath() + ' | xargs kill -9');
+            }
+            console.error('[tauri-mcp] Stale app cleared, proceeding with launch');
         }
         // Determine timeout based on build cache existence
         // Fresh build: 300 seconds (5 minutes), Incremental build: 60 seconds
@@ -537,6 +546,8 @@ export class TauriManager {
                 // Use absolute appDir as project root for Rust plugin - this is where socket will be created
                 TAURI_MCP_PROJECT_ROOT: path.resolve(this.appConfig.appDir),
                 TAURI_MCP_DEVTOOLS: devtools ? '1' : '',
+                // Pass window prefix for worktree identification
+                ...(process.env.TAURI_MCP_WINDOW_PREFIX ? { TAURI_MCP_WINDOW_PREFIX: process.env.TAURI_MCP_WINDOW_PREFIX } : {}),
                 // Keep VITE_PORT for backwards compatibility
                 VITE_PORT: this.vitePort.toString(),
             },
@@ -570,6 +581,7 @@ export class TauriManager {
             this.outputBuffer.push(`[exit] Process exited with code ${code}`);
             this.process = null;
             this.status = 'not_running';
+            this.launchedAt = null;
         });
         if (waitForReady) {
             try {
@@ -577,6 +589,7 @@ export class TauriManager {
                 const errors = this.parseBackendLogs(this.outputBuffer);
                 const hasErrors = errors.some(e => e.level === 'error');
                 this.status = 'running';
+                this.launchedAt = Date.now();
                 return {
                     status: hasErrors ? 'build_error' : 'launched',
                     message: hasErrors ? 'App started with build errors' : 'App is ready',
@@ -608,6 +621,7 @@ export class TauriManager {
             }
         }
         this.status = 'running';
+        this.launchedAt = Date.now();
         return {
             status: 'launched',
             message: 'App launched (not waiting for ready)',
@@ -719,6 +733,12 @@ export class TauriManager {
     }
     async stop() {
         if (!this.process) {
+            // No managed process — check if an external/orphan app is alive on the socket
+            const externalAlive = await this.checkExternalAppRunning();
+            if (externalAlive) {
+                await this.forceStopExternalApp();
+                return { message: 'External app stopped' };
+            }
             // Clean up stale socket file even if no managed process (Unix only)
             this.cleanupSocketFile();
             return { message: 'App was not running' };
@@ -728,6 +748,7 @@ export class TauriManager {
             proc.on('exit', () => {
                 this.process = null;
                 this.status = 'not_running';
+                this.launchedAt = null;
                 this.detectedPipePath = null;
                 this.detectedUnixSocketPath = null;
                 // Clean up socket file after process exits
@@ -763,6 +784,7 @@ export class TauriManager {
                     this.cleanupOrphanProcesses();
                     this.process = null;
                     this.status = 'not_running';
+                    this.launchedAt = null;
                     this.detectedPipePath = null;
                     this.detectedUnixSocketPath = null;
                     // Clean up socket file after force kill
@@ -830,10 +852,102 @@ export class TauriManager {
         this.cleanupOrphanProcessesSync();
         this.process = null;
         this.status = 'not_running';
+        this.launchedAt = null;
         this.detectedPipePath = null;
         this.detectedUnixSocketPath = null;
         // Clean up socket file after process is killed
         this.cleanupSocketFile();
+    }
+    /**
+     * Find the PID of the process owning the Unix domain socket.
+     * Uses `lsof -t <socketPath>` to find socket owners.
+     * Returns null on Windows or if no owner found.
+     */
+    findSocketOwnerPid() {
+        if (process.platform === 'win32')
+            return null;
+        const socketPath = this.getSocketPath();
+        if (!fs.existsSync(socketPath))
+            return null;
+        try {
+            const output = execSync(`lsof -t "${socketPath}" 2>/dev/null`, { encoding: 'utf-8' }).trim();
+            if (output) {
+                // lsof may return multiple PIDs (one per line), take the first
+                const pid = parseInt(output.split('\n')[0], 10);
+                if (!isNaN(pid) && pid > 0) {
+                    console.error(`[tauri-mcp] Found socket owner PID: ${pid}`);
+                    return pid;
+                }
+            }
+        }
+        catch {
+            // lsof failed or returned non-zero (no owner found)
+        }
+        return null;
+    }
+    /**
+     * Force-stop an external app detected on the socket.
+     * 1. Find PID via lsof
+     * 2. Kill the process group
+     * 3. Clean up socket file
+     * 4. Wait briefly for cleanup
+     */
+    async forceStopExternalApp() {
+        console.error('[tauri-mcp] Force-stopping external app...');
+        const pid = this.findSocketOwnerPid();
+        if (pid) {
+            try {
+                // Kill process group (negative PID)
+                process.kill(-pid, 'SIGTERM');
+                console.error(`[tauri-mcp] Sent SIGTERM to process group ${pid}`);
+            }
+            catch {
+                try {
+                    // Fallback: kill individual process
+                    process.kill(pid, 'SIGTERM');
+                    console.error(`[tauri-mcp] Sent SIGTERM to process ${pid}`);
+                }
+                catch {
+                    // Process may have already exited
+                }
+            }
+        }
+        else {
+            // No PID found via lsof — use pattern-based cleanup as fallback
+            if (this.appConfig) {
+                const binaryPattern = `${this.appConfig.appDir.replace(/\//g, '\\/')}.*${this.appConfig.binaryName}`;
+                spawnSync('pkill', ['-f', binaryPattern], { stdio: 'ignore' });
+                const pattern = `tauri dev.*${this.appConfig.appDir.replace(/\//g, '\\/')}`;
+                spawnSync('pkill', ['-f', pattern], { stdio: 'ignore' });
+            }
+        }
+        // Clean up socket file
+        this.cleanupSocketFile();
+        // Wait for process to exit and socket to be released
+        await this.sleep(1000);
+        // If PID was found and SIGTERM didn't work, try SIGKILL
+        if (pid) {
+            try {
+                process.kill(pid, 0); // Check if still alive
+                // Still alive — force kill
+                try {
+                    process.kill(-pid, 'SIGKILL');
+                }
+                catch { /* ignore */ }
+                try {
+                    process.kill(pid, 'SIGKILL');
+                }
+                catch { /* ignore */ }
+                console.error(`[tauri-mcp] Sent SIGKILL to process ${pid}`);
+                await this.sleep(500);
+            }
+            catch {
+                // Process already exited — good
+            }
+        }
+        // Final socket cleanup
+        this.cleanupSocketFile();
+        console.error('[tauri-mcp] External app force-stop completed');
     }
     cleanupOrphanProcessesSync() {
         if (!this.appConfig)
@@ -858,10 +972,10 @@ export class TauriManager {
                 // Uses the binary running from this appDir's target/debug directory
                 const binaryPattern = `${this.appConfig.appDir.replace(/\//g, '\\/')}.*${this.appConfig.binaryName}`;
                 spawnSync('pkill', ['-9', '-f', binaryPattern], { stdio: 'ignore' });
+                // Kill tauri dev processes for this specific directory only (orphan fallback)
+                const pattern = `tauri dev.*${this.appConfig.appDir.replace(/\//g, '\\/')}`;
+                spawnSync('pkill', ['-9', '-f', pattern], { stdio: 'ignore' });
             }
-            // Kill tauri dev processes for this specific directory only
-            const pattern = `tauri dev.*${this.appConfig.appDir.replace(/\//g, '\\/')}`;
-            spawnSync('pkill', ['-9', '-f', pattern], { stdio: 'ignore' });
         }
     }
     cleanupOrphanProcesses() {
@@ -892,10 +1006,10 @@ export class TauriManager {
                     // No PID available (orphan scenario) - kill binary by cwd-scoped pattern
                     const binaryPattern = `${this.appConfig.appDir.replace(/\//g, '\\/')}.*${this.appConfig.binaryName}`;
                     spawn('pkill', ['-9', '-f', binaryPattern], { stdio: 'ignore' });
+                    // Kill tauri dev processes for this specific directory only (orphan fallback)
+                    const pattern = `tauri dev.*${this.appConfig.appDir.replace(/\//g, '\\/')}`;
+                    spawn('pkill', ['-9', '-f', pattern], { stdio: 'ignore' });
                 }
-                // Kill tauri dev processes for this specific directory only
-                const pattern = `tauri dev.*${this.appConfig.appDir.replace(/\//g, '\\/')}`;
-                spawn('pkill', ['-9', '-f', pattern], { stdio: 'ignore' });
             }
             catch (e) {
                 // Ignore errors
@@ -918,6 +1032,15 @@ export class TauriManager {
     }
     getAppConfig() {
         return this.appConfig;
+    }
+    getProcessPid() {
+        return this.process?.pid ?? null;
+    }
+    getLaunchedAt() {
+        return this.launchedAt;
+    }
+    getProjectRoot() {
+        return this.projectRoot;
     }
     /**
      * Get captured app logs (stdout/stderr)

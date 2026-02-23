@@ -123,6 +123,9 @@ export function createToolHandlers(tauriManager, socketManager) {
         app_status: async (args) => {
             const status = tauriManager.getStatus();
             const config = tauriManager.getAppConfig();
+            const pid = tauriManager.getProcessPid();
+            const launchedAt = tauriManager.getLaunchedAt();
+            const projectRoot = tauriManager.getProjectRoot();
             const result = {
                 status,
                 app: config ? {
@@ -130,6 +133,9 @@ export function createToolHandlers(tauriManager, socketManager) {
                     binary: config.binaryName,
                     directory: config.appDir,
                 } : null,
+                ...(pid != null && { pid }),
+                ...(launchedAt != null && { launchedAt }),
+                projectRoot,
             };
             // When running and probe requested, check bridge health per window
             if (status === 'running' && args.probe_bridge) {
@@ -151,6 +157,18 @@ export function createToolHandlers(tauriManager, socketManager) {
         },
         launch_app: async (args) => {
             const result = await tauriManager.launch(args);
+            // Apply window title prefix after successful launch if env var is set
+            if (result.status === 'launched') {
+                const prefix = process.env.TAURI_MCP_WINDOW_PREFIX;
+                if (prefix) {
+                    try {
+                        await socketManager.setTitlePrefix(prefix);
+                    }
+                    catch {
+                        // Best-effort — app may not have finished initializing windows yet
+                    }
+                }
+            }
             return {
                 content: [
                     {

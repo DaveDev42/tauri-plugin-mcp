@@ -53,14 +53,19 @@ pub struct McpState {
     pending: Mutex<HashMap<String, oneshot::Sender<Result<serde_json::Value, String>>>>,
     /// Debug server
     debug_server: Arc<DebugServer>,
+    /// Window title prefix for worktree identification
+    window_prefix: Mutex<Option<String>>,
 }
 
 impl McpState {
     fn new(debug_server: Arc<DebugServer>) -> Self {
+        let window_prefix = std::env::var("TAURI_MCP_WINDOW_PREFIX").ok()
+            .filter(|s| !s.is_empty());
         Self {
             initialized_windows: Mutex::new(HashSet::new()),
             pending: Mutex::new(HashMap::new()),
             debug_server,
+            window_prefix: Mutex::new(window_prefix),
         }
     }
 
@@ -687,6 +692,51 @@ impl<R: Runtime + 'static> CommandHandler for IpcCommandHandler<R> {
                 JsonRpcResponse::success(id, serde_json::json!({ "windows": results }))
             }
 
+            "set_title_prefix" => {
+                let prefix = request
+                    .params
+                    .get("prefix")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+
+                // Update stored prefix
+                {
+                    let mut stored = self.state.window_prefix.lock().await;
+                    *stored = prefix.clone();
+                }
+
+                // Apply to all existing windows
+                let webviews = self.app.webview_windows();
+                let mut updated = 0;
+                for (_, window) in &webviews {
+                    let current_title = window.title().unwrap_or_default();
+                    // Strip any existing prefix: "[...] Title" → "Title"
+                    let base_title = if let Some(rest) = current_title.strip_prefix('[') {
+                        rest.find("] ")
+                            .map(|i| &rest[i + 2..])
+                            .unwrap_or(&current_title)
+                    } else {
+                        &current_title
+                    };
+
+                    let new_title = match &prefix {
+                        Some(pfx) => format!("[{}] {}", pfx, base_title),
+                        None => base_title.to_string(),
+                    };
+
+                    if let Err(e) = window.set_title(&new_title) {
+                        warn!("Failed to set title for window: {}", e);
+                    } else {
+                        updated += 1;
+                    }
+                }
+
+                JsonRpcResponse::success(
+                    id,
+                    serde_json::json!({ "updated": updated, "prefix": prefix }),
+                )
+            }
+
             "restore_devtools" => {
                 // Restore DevTools after macOS screencapture path
                 // Called from Node.js side after screenshotMacOS completes
@@ -726,6 +776,27 @@ async fn register_bridge<R: Runtime>(
     eprintln!("[tauri-plugin-mcp] JS bridge registered for window: {}", label);
     info!("JS bridge registered for window: {}", label);
     state.set_window_initialized(label).await;
+
+    // Apply window title prefix if set (for worktree identification)
+    {
+        let prefix = state.window_prefix.lock().await;
+        if let Some(ref pfx) = *prefix {
+            // Find the WebviewWindow matching this webview's label
+            if let Some(window) = app.webview_windows().get(webview.label()) {
+                let current_title = window.title().unwrap_or_default();
+                // Only add prefix if not already present
+                let expected_prefix = format!("[{}] ", pfx);
+                if !current_title.starts_with(&expected_prefix) {
+                    let new_title = format!("[{}] {}", pfx, current_title);
+                    if let Err(e) = window.set_title(&new_title) {
+                        warn!("Failed to set window title prefix: {}", e);
+                    } else {
+                        info!("Applied window title prefix: {}", new_title);
+                    }
+                }
+            }
+        }
+    }
 
     // Open devtools if requested via environment variable
     if should_open_devtools() {

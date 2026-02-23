@@ -132,6 +132,10 @@ export declare class SocketManager {
             lastSuccess: number | null;
         };
     }>;
+    setTitlePrefix(prefix: string | null): Promise<{
+        updated: number;
+        prefix: string | null;
+    }>;
     getHmrUpdates(clear?: boolean, windowLabel?: string): Promise<{
         updates: Array<{
             type: 'hmr-update' | 'full-reload';
