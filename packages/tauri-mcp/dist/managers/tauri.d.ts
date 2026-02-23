@@ -3,6 +3,7 @@ export interface TauriAppConfig {
     binaryName: string;
     packageName: string;
 }
+export declare const TAURI_MANAGER_VERSION = "0.1.0";
 export type AppStatus = 'not_running' | 'starting' | 'running';
 export type BuildHealthStatus = 'healthy' | 'error' | 'unknown';
 export interface LaunchOptions {
