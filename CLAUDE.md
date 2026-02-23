@@ -52,17 +52,17 @@ Claude Code <-> MCP Server (Node.js) <-> IPC Socket <-> Tauri Plugin (Rust) <-> 
 
 | Tool | Parameters | Description |
 |------|------------|-------------|
-| `app_status` | - | Returns `{ status, app }` |
+| `app_status` | `probe_bridge?: boolean` (default: false) | Returns `{ status, app, bridge? }` — with `probe_bridge: true`, includes per-window health (`initialized`, `bridge_alive`) |
 | `launch_app` | `wait_for_ready?: boolean` (default: true), `timeout_secs?: number` (default: 60), `features?: string[]` | Runs `pnpm tauri dev [--features ...]` |
 | `stop_app` | - | Kills app process tree |
-| `list_windows` | - | List all open windows with labels, titles, and focus state |
+| `list_windows` | - | List all open windows with labels, titles, focus state, and `bridge_initialized` |
 | `focus_window` | `window: string` | Focus a specific window by label |
 | `snapshot` | `window?: string` | Returns accessibility tree with ref numbers |
 | `click` | `ref?: number`, `selector?: string`, `window?: string` | Either ref or selector required |
 | `fill` | `ref?: number`, `selector?: string`, `value: string`, `window?: string` | Either ref or selector required |
 | `press_key` | `key: string`, `window?: string` | Key name (e.g., "Enter", "Tab") |
 | `navigate` | `url: string`, `window?: string` | Sets window.location.href |
-| `screenshot` | `window?: string` | Returns base64 JPEG via html2canvas |
+| `screenshot` | `window?: string` | Returns base64 PNG via native OS capture |
 | `evaluate_script` | `script: string`, `window?: string` | Executes JS, returns result |
 | `get_logs` | `filter?: string[]`, `limit?: number`, `clear?: boolean`, `window?: string` | Unified log access |
 | `get_restart_events` | `limit?: number`, `clear?: boolean`, `window?: string` | Get recent app restart/reload events with triggering files |

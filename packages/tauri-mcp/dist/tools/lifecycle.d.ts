@@ -5,7 +5,13 @@ export declare const toolSchemas: {
     app_status: {
         name: string;
         description: string;
-        inputSchema: z.ZodObject<{}, "strip", z.ZodTypeAny, {}, {}>;
+        inputSchema: z.ZodObject<{
+            probe_bridge: z.ZodDefault<z.ZodOptional<z.ZodBoolean>>;
+        }, "strip", z.ZodTypeAny, {
+            probe_bridge: boolean;
+        }, {
+            probe_bridge?: boolean | undefined;
+        }>;
     };
     launch_app: {
         name: string;
@@ -189,7 +195,9 @@ export declare const toolSchemas: {
 };
 export type ToolName = keyof typeof toolSchemas;
 export declare function createToolHandlers(tauriManager: TauriManager, socketManager: SocketManager): {
-    app_status: () => Promise<{
+    app_status: (args: {
+        probe_bridge?: boolean;
+    }) => Promise<{
         content: {
             type: "text";
             text: string;

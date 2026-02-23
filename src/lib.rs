@@ -33,7 +33,7 @@ use tokio::sync::{oneshot, Mutex};
 use tracing::{debug, error, info, warn};
 
 use debug_server::DebugServer;
-use protocol::{JsonRpcRequest, JsonRpcResponse, EVAL_ERROR, METHOD_NOT_FOUND};
+use protocol::{JsonRpcRequest, JsonRpcResponse, EVAL_ERROR, METHOD_NOT_FOUND, SCREENSHOT_ERROR};
 
 /// Eval result from JS bridge
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -70,6 +70,14 @@ impl McpState {
 
     async fn set_window_initialized(&self, label: String) {
         self.initialized_windows.lock().await.insert(label);
+    }
+
+    async fn clear_window_initialized(&self, label: &str) {
+        self.initialized_windows.lock().await.remove(label);
+    }
+
+    async fn get_initialized_windows(&self) -> HashSet<String> {
+        self.initialized_windows.lock().await.clone()
     }
 }
 
@@ -159,12 +167,43 @@ impl<R: Runtime> IpcCommandHandler<R> {
         }
     }
 
-    /// Execute JavaScript via IPC bridge on a specific window and wait for result
-    /// Automatically injects the bridge if not initialized for this window
+    /// Check if an error indicates the bridge is dead or broken
+    fn is_bridge_error(error: &str) -> bool {
+        error.contains("Timeout waiting for eval result")
+            || error.contains("Channel closed unexpectedly")
+            || error.contains("Failed to execute script")
+            || error.contains("Failed to inject MCP bridge")
+    }
+
+    /// Execute JavaScript via IPC bridge with a single retry on bridge errors.
+    /// On first failure, the bridge is invalidated (by `_once`), and the retry
+    /// triggers re-injection automatically with a shorter timeout.
     async fn eval_with_result_on_window(
         &self,
         window_label: Option<&str>,
         script: &str,
+    ) -> Result<serde_json::Value, String> {
+        match self.eval_with_result_on_window_once(window_label, script, 30).await {
+            Ok(result) => Ok(result),
+            Err(e) if Self::is_bridge_error(&e) => {
+                warn!("Bridge error on first attempt, retrying with re-injection: {}", e);
+                // Use shorter timeout for retry — if a freshly injected bridge
+                // doesn't respond in 5s, it's truly dead
+                self.eval_with_result_on_window_once(window_label, script, 5).await
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Execute JavaScript via IPC bridge on a specific window and wait for result.
+    /// Automatically injects the bridge if not initialized for this window.
+    /// On bridge errors (timeout, channel closed, eval failure), invalidates the
+    /// bridge state so the next call will re-inject.
+    async fn eval_with_result_on_window_once(
+        &self,
+        window_label: Option<&str>,
+        script: &str,
+        timeout_secs: u64,
     ) -> Result<serde_json::Value, String> {
         // Get target window
         let window = self.get_webview(window_label)?;
@@ -206,22 +245,75 @@ impl<R: Runtime> IpcCommandHandler<R> {
         if let Err(e) = window.eval(&js) {
             let mut pending = self.state.pending.lock().await;
             pending.remove(&request_id);
+            self.state.clear_window_initialized(&label).await;
             return Err(format!("Failed to execute script: {}", e));
         }
 
         // Wait for result with timeout
-        let timeout = tokio::time::Duration::from_secs(30);
+        let timeout = tokio::time::Duration::from_secs(timeout_secs);
         match tokio::time::timeout(timeout, rx).await {
             Ok(Ok(result)) => result,
-            Ok(Err(_)) => Err("Channel closed unexpectedly".to_string()),
+            Ok(Err(_)) => {
+                self.state.clear_window_initialized(&label).await;
+                Err("Channel closed unexpectedly".to_string())
+            }
             Err(_) => {
                 let mut pending = self.state.pending.lock().await;
                 pending.remove(&request_id);
-                Err("Timeout waiting for eval result".to_string())
+                drop(pending);
+                self.state.clear_window_initialized(&label).await;
+                Err(format!("Timeout waiting for eval result ({}s)", timeout_secs))
             }
         }
     }
 
+    /// Start a bridge health probe for a specific window (non-blocking).
+    /// Sends `return true` through __MCP_EVAL__ and returns the receiver.
+    /// Returns None if the eval dispatch itself failed.
+    async fn start_bridge_probe(
+        &self,
+        window: &tauri::WebviewWindow<R>,
+        label: &str,
+    ) -> Option<(String, oneshot::Receiver<Result<serde_json::Value, String>>)> {
+        let request_id = uuid::Uuid::new_v4().to_string();
+        let (tx, rx) = oneshot::channel();
+
+        {
+            let mut pending = self.state.pending.lock().await;
+            pending.insert(request_id.clone(), tx);
+        }
+
+        let js = format!("window.__MCP_EVAL__('{}', 'return true')", request_id);
+        if window.eval(&js).is_err() {
+            let mut pending = self.state.pending.lock().await;
+            pending.remove(&request_id);
+            self.state.clear_window_initialized(label).await;
+            return None;
+        }
+
+        Some((request_id, rx))
+    }
+
+    /// Await a bridge probe result with timeout.
+    /// Cleans up on failure and invalidates bridge state.
+    async fn finish_bridge_probe(
+        &self,
+        label: &str,
+        request_id: String,
+        rx: oneshot::Receiver<Result<serde_json::Value, String>>,
+    ) -> bool {
+        let timeout = tokio::time::Duration::from_secs(3);
+        match tokio::time::timeout(timeout, rx).await {
+            Ok(Ok(Ok(_))) => true,
+            _ => {
+                let mut pending = self.state.pending.lock().await;
+                pending.remove(&request_id);
+                drop(pending);
+                self.state.clear_window_initialized(label).await;
+                false
+            }
+        }
+    }
 }
 
 #[async_trait::async_trait]
@@ -236,6 +328,7 @@ impl<R: Runtime + 'static> CommandHandler for IpcCommandHandler<R> {
 
             "list_windows" => {
                 let webviews = self.app.webview_windows();
+                let initialized = self.state.get_initialized_windows().await;
                 let windows: Vec<serde_json::Value> = webviews
                     .iter()
                     .map(|(label, window)| {
@@ -248,7 +341,8 @@ impl<R: Runtime + 'static> CommandHandler for IpcCommandHandler<R> {
                             "size": size.map(|s| serde_json::json!({
                                 "width": s.width,
                                 "height": s.height
-                            }))
+                            })),
+                            "bridge_initialized": initialized.contains(label.as_str())
                         })
                     })
                     .collect();
@@ -363,18 +457,53 @@ impl<R: Runtime + 'static> CommandHandler for IpcCommandHandler<R> {
                     .get("url")
                     .and_then(|v| v.as_str())
                     .unwrap_or("");
+                // Resolve label before eval to avoid double get_webview lookup
+                let resolved_label = self.get_webview(window_label)
+                    .map(|w| w.label().to_string())
+                    .ok();
                 let js = commands::navigate_js(url);
                 match self.eval_with_result_on_window(window_label, &js).await {
-                    Ok(result) => JsonRpcResponse::success(id, result),
+                    Ok(result) => {
+                        // Navigation destroys the page context; invalidate bridge
+                        // so the next command re-injects it
+                        if let Some(label) = &resolved_label {
+                            self.state.clear_window_initialized(label).await;
+                        }
+                        JsonRpcResponse::success(id, result)
+                    }
                     Err(e) => JsonRpcResponse::error(id, EVAL_ERROR, e),
                 }
             }
 
             "get_window_id" => {
                 // Get the macOS CGWindowID for use with screencapture command
+                // Close DevTools if open (macOS only) to prevent capturing DevTools window
                 let pid = std::process::id();
+
+                // Get target window for title-based matching and DevTools handling
+                let window = match self.get_webview(window_label) {
+                    Ok(w) => w,
+                    Err(e) => return JsonRpcResponse::error(id, SCREENSHOT_ERROR, e),
+                };
+
+                let title = window.title().unwrap_or_default();
+
+                // Close DevTools if open (macOS only — Windows doesn't support is_devtools_open)
+                let devtools_was_open = {
+                    #[cfg(target_os = "macos")]
+                    { window.is_devtools_open() }
+                    #[cfg(not(target_os = "macos"))]
+                    { false }
+                };
+
+                if devtools_was_open {
+                    window.close_devtools();
+                    tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;
+                }
+
+                let title_clone = title.clone();
                 let result = tokio::task::spawn_blocking(move || {
-                    commands::screenshot::get_window_id_by_pid(pid)
+                    commands::screenshot::get_window_id_by_title(pid, &title_clone)
                 })
                 .await;
 
@@ -383,62 +512,77 @@ impl<R: Runtime + 'static> CommandHandler for IpcCommandHandler<R> {
                         id,
                         serde_json::json!({
                             "window_id": window_id,
-                            "pid": pid
+                            "pid": pid,
+                            "devtools_was_open": devtools_was_open
                         }),
                     ),
-                    Ok(Err(e)) => JsonRpcResponse::error(id, EVAL_ERROR, e),
+                    Ok(Err(e)) => JsonRpcResponse::error(id, SCREENSHOT_ERROR, e),
                     Err(e) => {
-                        JsonRpcResponse::error(id, EVAL_ERROR, format!("Task panicked: {}", e))
+                        JsonRpcResponse::error(id, SCREENSHOT_ERROR, format!("Task panicked: {}", e))
                     }
                 }
             }
 
             "screenshot" => {
-                // Try native screenshot first with timeout, fallback to JS-based html2canvas
-                // Use spawn_blocking to avoid blocking the async runtime
+                // Native screenshot via xcap with DevTools handling
                 let pid = std::process::id();
+
+                // Get target window for title-based matching and DevTools handling
+                let window = match self.get_webview(window_label) {
+                    Ok(w) => w,
+                    Err(e) => return JsonRpcResponse::error(id, SCREENSHOT_ERROR, e),
+                };
+
+                let title = window.title().unwrap_or_default();
+
+                // Close DevTools if open (macOS only — Windows doesn't support is_devtools_open)
+                let devtools_was_open = {
+                    #[cfg(target_os = "macos")]
+                    { window.is_devtools_open() }
+                    #[cfg(not(target_os = "macos"))]
+                    { false }
+                };
+
+                if devtools_was_open {
+                    window.close_devtools();
+                    tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;
+                }
+
+                // Attempt title-based capture with 5s timeout, fall back to PID-only
+                let title_clone = title.clone();
                 let native_task = tokio::task::spawn_blocking(move || {
-                    commands::screenshot::capture_window_by_pid(pid)
+                    commands::screenshot::capture_window_by_title(pid, &title_clone)
                 });
 
-                // Give native screenshot 5 seconds, then fall back to JS
                 let native_result =
                     tokio::time::timeout(tokio::time::Duration::from_secs(5), native_task).await;
+
+                // Restore DevTools if they were open
+                if devtools_was_open {
+                    window.open_devtools();
+                }
 
                 match native_result {
                     Ok(Ok(Ok(result))) => JsonRpcResponse::success(id, result),
                     Ok(Ok(Err(e))) => {
-                        tracing::warn!("Native screenshot failed: {}, falling back to JS", e);
-                        let screenshot_js = commands::SCREENSHOT_JS;
-                        match self
-                            .eval_with_result_on_window(window_label, screenshot_js)
-                            .await
-                        {
-                            Ok(result) => JsonRpcResponse::success(id, result),
-                            Err(e) => JsonRpcResponse::error(id, EVAL_ERROR, e),
-                        }
+                        tracing::warn!("Native screenshot failed: {}", e);
+                        JsonRpcResponse::error(id, SCREENSHOT_ERROR, e)
                     }
                     Ok(Err(e)) => {
-                        tracing::warn!("Screenshot task panicked: {}, falling back to JS", e);
-                        let screenshot_js = commands::SCREENSHOT_JS;
-                        match self
-                            .eval_with_result_on_window(window_label, screenshot_js)
-                            .await
-                        {
-                            Ok(result) => JsonRpcResponse::success(id, result),
-                            Err(e) => JsonRpcResponse::error(id, EVAL_ERROR, e),
-                        }
+                        tracing::warn!("Screenshot task panicked: {}", e);
+                        JsonRpcResponse::error(
+                            id,
+                            SCREENSHOT_ERROR,
+                            format!("Screenshot task panicked: {}", e),
+                        )
                     }
                     Err(_) => {
-                        tracing::warn!("Native screenshot timed out, falling back to JS");
-                        let screenshot_js = commands::SCREENSHOT_JS;
-                        match self
-                            .eval_with_result_on_window(window_label, screenshot_js)
-                            .await
-                        {
-                            Ok(result) => JsonRpcResponse::success(id, result),
-                            Err(e) => JsonRpcResponse::error(id, EVAL_ERROR, e),
-                        }
+                        tracing::warn!("Native screenshot timed out after 5s");
+                        JsonRpcResponse::error(
+                            id,
+                            SCREENSHOT_ERROR,
+                            "Screenshot timed out after 5 seconds".to_string(),
+                        )
                     }
                 }
             }
@@ -493,6 +637,65 @@ impl<R: Runtime + 'static> CommandHandler for IpcCommandHandler<R> {
                     Ok(result) => JsonRpcResponse::success(id, result),
                     Err(e) => JsonRpcResponse::error(id, EVAL_ERROR, e),
                 }
+            }
+
+            "probe_bridge" => {
+                let webviews = self.app.webview_windows();
+                let target_windows: Vec<(String, tauri::WebviewWindow<R>)> = if let Some(label) = window_label {
+                    match webviews.get(label) {
+                        Some(w) => vec![(label.to_string(), w.clone())],
+                        None => return JsonRpcResponse::error(id, EVAL_ERROR, format!("Window '{}' not found", label)),
+                    }
+                } else {
+                    webviews.iter().map(|(l, w)| (l.clone(), w.clone())).collect()
+                };
+
+                // Phase 1: Dispatch all probes (non-blocking eval sends)
+                let initialized = self.state.get_initialized_windows().await;
+                struct PendingProbe {
+                    label: String,
+                    is_init: bool,
+                    rx: Option<(String, oneshot::Receiver<Result<serde_json::Value, String>>)>,
+                }
+                let mut pending_probes = Vec::new();
+                for (label, window) in &target_windows {
+                    let is_init = initialized.contains(label.as_str());
+                    let rx = if is_init {
+                        self.start_bridge_probe(window, label).await
+                    } else {
+                        None
+                    };
+                    pending_probes.push(PendingProbe { label: label.clone(), is_init, rx });
+                }
+
+                // Phase 2: Collect results — awaits are sequential but timeouts
+                // overlap because all evals were dispatched in Phase 1
+                let mut results = serde_json::Map::new();
+                for probe in pending_probes {
+                    let alive = match probe.rx {
+                        Some((request_id, rx)) => {
+                            self.finish_bridge_probe(&probe.label, request_id, rx).await
+                        }
+                        None => false,
+                    };
+                    results.insert(probe.label, serde_json::json!({
+                        "initialized": probe.is_init,
+                        "bridge_alive": alive
+                    }));
+                }
+
+                JsonRpcResponse::success(id, serde_json::json!({ "windows": results }))
+            }
+
+            "restore_devtools" => {
+                // Restore DevTools after macOS screencapture path
+                // Called from Node.js side after screenshotMacOS completes
+                let window = match self.get_webview(window_label) {
+                    Ok(w) => w,
+                    Err(e) => return JsonRpcResponse::error(id, EVAL_ERROR, e),
+                };
+                window.open_devtools();
+                JsonRpcResponse::success(id, serde_json::json!({ "restored": true }))
             }
 
             _ => JsonRpcResponse::error(

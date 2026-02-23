@@ -56,8 +56,13 @@ export declare class SocketManager {
                 width: number;
                 height: number;
             } | null;
+            bridge_initialized: boolean;
         }>;
     }>;
+    probeBridge(windowLabel?: string): Promise<Record<string, {
+        initialized: boolean;
+        bridge_alive: boolean;
+    }>>;
     focusWindow(windowLabel: string): Promise<string>;
     snapshot(options?: {
         window?: string;

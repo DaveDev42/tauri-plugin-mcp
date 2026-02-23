@@ -67,6 +67,8 @@ pub const INTERNAL_ERROR: i32 = -32603;
 pub const APP_NOT_CONNECTED: i32 = -32000;
 pub const EVAL_ERROR: i32 = -32001;
 pub const SCREENSHOT_ERROR: i32 = -32002;
+#[allow(dead_code)] // Part of protocol API surface; used by Node.js side
+pub const BRIDGE_ERROR: i32 = -32003;
 
 /// Commands supported by the debug server
 #[derive(Debug, Clone, Serialize, Deserialize)]

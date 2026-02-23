@@ -195,9 +195,18 @@ export class SocketManager {
 
   // Multi-window support methods
 
-  async listWindows(): Promise<{ windows: Array<{ label: string; title: string; focused: boolean; visible: boolean; size: { width: number; height: number } | null }> }> {
-    const result = await this.sendCommand('list_windows') as { windows: Array<{ label: string; title: string; focused: boolean; visible: boolean; size: { width: number; height: number } | null }> };
+  async listWindows(): Promise<{ windows: Array<{ label: string; title: string; focused: boolean; visible: boolean; size: { width: number; height: number } | null; bridge_initialized: boolean }> }> {
+    const result = await this.sendCommand('list_windows') as { windows: Array<{ label: string; title: string; focused: boolean; visible: boolean; size: { width: number; height: number } | null; bridge_initialized: boolean }> };
     return result;
+  }
+
+  async probeBridge(windowLabel?: string): Promise<Record<string, { initialized: boolean; bridge_alive: boolean }>> {
+    const params: Record<string, unknown> = {};
+    if (windowLabel) params.window = windowLabel;
+    const result = await this.sendCommand('probe_bridge', params) as {
+      windows: Record<string, { initialized: boolean; bridge_alive: boolean }>;
+    };
+    return result.windows;
   }
 
   async focusWindow(windowLabel: string): Promise<string> {
@@ -256,7 +265,7 @@ export class SocketManager {
 
   async screenshot(options?: { window?: string }): Promise<{ data: string; mimeType: string; width: number; height: number }> {
     // On macOS, try screencapture CLI first (no Screen Recording permission needed)
-    // If it fails, fall through to native (xcap → html2canvas)
+    // If it fails, fall through to native xcap capture
     if (os.platform() === 'darwin') {
       try {
         return await this.screenshotMacOS(options);
@@ -270,11 +279,13 @@ export class SocketManager {
 
   private async screenshotMacOS(options?: { window?: string }): Promise<{ data: string; mimeType: string; width: number; height: number }> {
     // Get window ID from Tauri app
+    // The Rust side closes DevTools if open and returns devtools_was_open flag
     const params: Record<string, unknown> = {};
     if (options?.window) params.window = options.window;
 
-    const windowInfo = await this.sendCommand('get_window_id', params) as { window_id: number; pid: number };
+    const windowInfo = await this.sendCommand('get_window_id', params) as { window_id: number; pid: number; devtools_was_open: boolean };
     const windowId = windowInfo.window_id;
+    const devtoolsWasOpen = windowInfo.devtools_was_open;
 
     // Create temp file for screenshot
     const tmpFile = path.join(os.tmpdir(), `tauri-mcp-screenshot-${process.pid}-${crypto.randomUUID()}.png`);
@@ -311,6 +322,14 @@ export class SocketManager {
         height
       };
     } finally {
+      // Restore DevTools if they were open before screenshot
+      if (devtoolsWasOpen) {
+        try {
+          await this.sendCommand('restore_devtools', params);
+        } catch {
+          // Ignore restore errors — DevTools restoration is best-effort
+        }
+      }
       // Clean up temp file
       try {
         fs.unlinkSync(tmpFile);

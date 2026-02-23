@@ -154,6 +154,13 @@ export class SocketManager {
         const result = await this.sendCommand('list_windows');
         return result;
     }
+    async probeBridge(windowLabel) {
+        const params = {};
+        if (windowLabel)
+            params.window = windowLabel;
+        const result = await this.sendCommand('probe_bridge', params);
+        return result.windows;
+    }
     async focusWindow(windowLabel) {
         const result = await this.sendCommand('focus_window', { window: windowLabel });
         return `Focused window: ${result.focused}`;
@@ -204,7 +211,7 @@ export class SocketManager {
     }
     async screenshot(options) {
         // On macOS, try screencapture CLI first (no Screen Recording permission needed)
-        // If it fails, fall through to native (xcap → html2canvas)
+        // If it fails, fall through to native xcap capture
         if (os.platform() === 'darwin') {
             try {
                 return await this.screenshotMacOS(options);
@@ -217,11 +224,13 @@ export class SocketManager {
     }
     async screenshotMacOS(options) {
         // Get window ID from Tauri app
+        // The Rust side closes DevTools if open and returns devtools_was_open flag
         const params = {};
         if (options?.window)
             params.window = options.window;
         const windowInfo = await this.sendCommand('get_window_id', params);
         const windowId = windowInfo.window_id;
+        const devtoolsWasOpen = windowInfo.devtools_was_open;
         // Create temp file for screenshot
         const tmpFile = path.join(os.tmpdir(), `tauri-mcp-screenshot-${process.pid}-${crypto.randomUUID()}.png`);
         try {
@@ -254,6 +263,15 @@ export class SocketManager {
             };
         }
         finally {
+            // Restore DevTools if they were open before screenshot
+            if (devtoolsWasOpen) {
+                try {
+                    await this.sendCommand('restore_devtools', params);
+                }
+                catch {
+                    // Ignore restore errors — DevTools restoration is best-effort
+                }
+            }
             // Clean up temp file
             try {
                 fs.unlinkSync(tmpFile);
