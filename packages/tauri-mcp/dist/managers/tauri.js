@@ -2,7 +2,6 @@ import { spawn, spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as net from 'net';
-export const TAURI_MANAGER_VERSION = '0.1.0';
 const SOCKET_FILE_NAME = '.tauri-mcp.sock';
 export class TauriManager {
     process = null;
