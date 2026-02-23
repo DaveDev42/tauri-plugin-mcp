@@ -33,7 +33,7 @@ use tokio::sync::{oneshot, Mutex};
 use tracing::{debug, error, info, warn};
 
 use debug_server::DebugServer;
-use protocol::{JsonRpcRequest, JsonRpcResponse, EVAL_ERROR, METHOD_NOT_FOUND};
+use protocol::{JsonRpcRequest, JsonRpcResponse, EVAL_ERROR, METHOD_NOT_FOUND, SCREENSHOT_ERROR};
 
 /// Eval result from JS bridge
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -372,9 +372,33 @@ impl<R: Runtime + 'static> CommandHandler for IpcCommandHandler<R> {
 
             "get_window_id" => {
                 // Get the macOS CGWindowID for use with screencapture command
+                // Close DevTools if open (macOS only) to prevent capturing DevTools window
                 let pid = std::process::id();
+
+                // Get target window for title-based matching and DevTools handling
+                let window = match self.get_webview(window_label) {
+                    Ok(w) => w,
+                    Err(e) => return JsonRpcResponse::error(id, SCREENSHOT_ERROR, e),
+                };
+
+                let title = window.title().unwrap_or_default();
+
+                // Close DevTools if open (macOS only — Windows doesn't support is_devtools_open)
+                let devtools_was_open = {
+                    #[cfg(target_os = "macos")]
+                    { window.is_devtools_open() }
+                    #[cfg(not(target_os = "macos"))]
+                    { false }
+                };
+
+                if devtools_was_open {
+                    window.close_devtools();
+                    tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;
+                }
+
+                let title_clone = title.clone();
                 let result = tokio::task::spawn_blocking(move || {
-                    commands::screenshot::get_window_id_by_pid(pid)
+                    commands::screenshot::get_window_id_by_title(pid, &title_clone)
                 })
                 .await;
 
@@ -383,62 +407,77 @@ impl<R: Runtime + 'static> CommandHandler for IpcCommandHandler<R> {
                         id,
                         serde_json::json!({
                             "window_id": window_id,
-                            "pid": pid
+                            "pid": pid,
+                            "devtools_was_open": devtools_was_open
                         }),
                     ),
-                    Ok(Err(e)) => JsonRpcResponse::error(id, EVAL_ERROR, e),
+                    Ok(Err(e)) => JsonRpcResponse::error(id, SCREENSHOT_ERROR, e),
                     Err(e) => {
-                        JsonRpcResponse::error(id, EVAL_ERROR, format!("Task panicked: {}", e))
+                        JsonRpcResponse::error(id, SCREENSHOT_ERROR, format!("Task panicked: {}", e))
                     }
                 }
             }
 
             "screenshot" => {
-                // Try native screenshot first with timeout, fallback to JS-based html2canvas
-                // Use spawn_blocking to avoid blocking the async runtime
+                // Native screenshot via xcap with DevTools handling
                 let pid = std::process::id();
+
+                // Get target window for title-based matching and DevTools handling
+                let window = match self.get_webview(window_label) {
+                    Ok(w) => w,
+                    Err(e) => return JsonRpcResponse::error(id, SCREENSHOT_ERROR, e),
+                };
+
+                let title = window.title().unwrap_or_default();
+
+                // Close DevTools if open (macOS only — Windows doesn't support is_devtools_open)
+                let devtools_was_open = {
+                    #[cfg(target_os = "macos")]
+                    { window.is_devtools_open() }
+                    #[cfg(not(target_os = "macos"))]
+                    { false }
+                };
+
+                if devtools_was_open {
+                    window.close_devtools();
+                    tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;
+                }
+
+                // Attempt title-based capture with 5s timeout, fall back to PID-only
+                let title_clone = title.clone();
                 let native_task = tokio::task::spawn_blocking(move || {
-                    commands::screenshot::capture_window_by_pid(pid)
+                    commands::screenshot::capture_window_by_title(pid, &title_clone)
                 });
 
-                // Give native screenshot 5 seconds, then fall back to JS
                 let native_result =
                     tokio::time::timeout(tokio::time::Duration::from_secs(5), native_task).await;
+
+                // Restore DevTools if they were open
+                if devtools_was_open {
+                    window.open_devtools();
+                }
 
                 match native_result {
                     Ok(Ok(Ok(result))) => JsonRpcResponse::success(id, result),
                     Ok(Ok(Err(e))) => {
-                        tracing::warn!("Native screenshot failed: {}, falling back to JS", e);
-                        let screenshot_js = commands::SCREENSHOT_JS;
-                        match self
-                            .eval_with_result_on_window(window_label, screenshot_js)
-                            .await
-                        {
-                            Ok(result) => JsonRpcResponse::success(id, result),
-                            Err(e) => JsonRpcResponse::error(id, EVAL_ERROR, e),
-                        }
+                        tracing::warn!("Native screenshot failed: {}", e);
+                        JsonRpcResponse::error(id, SCREENSHOT_ERROR, e)
                     }
                     Ok(Err(e)) => {
-                        tracing::warn!("Screenshot task panicked: {}, falling back to JS", e);
-                        let screenshot_js = commands::SCREENSHOT_JS;
-                        match self
-                            .eval_with_result_on_window(window_label, screenshot_js)
-                            .await
-                        {
-                            Ok(result) => JsonRpcResponse::success(id, result),
-                            Err(e) => JsonRpcResponse::error(id, EVAL_ERROR, e),
-                        }
+                        tracing::warn!("Screenshot task panicked: {}", e);
+                        JsonRpcResponse::error(
+                            id,
+                            SCREENSHOT_ERROR,
+                            format!("Screenshot task panicked: {}", e),
+                        )
                     }
                     Err(_) => {
-                        tracing::warn!("Native screenshot timed out, falling back to JS");
-                        let screenshot_js = commands::SCREENSHOT_JS;
-                        match self
-                            .eval_with_result_on_window(window_label, screenshot_js)
-                            .await
-                        {
-                            Ok(result) => JsonRpcResponse::success(id, result),
-                            Err(e) => JsonRpcResponse::error(id, EVAL_ERROR, e),
-                        }
+                        tracing::warn!("Native screenshot timed out after 5s");
+                        JsonRpcResponse::error(
+                            id,
+                            SCREENSHOT_ERROR,
+                            "Screenshot timed out after 5 seconds".to_string(),
+                        )
                     }
                 }
             }
@@ -493,6 +532,17 @@ impl<R: Runtime + 'static> CommandHandler for IpcCommandHandler<R> {
                     Ok(result) => JsonRpcResponse::success(id, result),
                     Err(e) => JsonRpcResponse::error(id, EVAL_ERROR, e),
                 }
+            }
+
+            "restore_devtools" => {
+                // Restore DevTools after macOS screencapture path
+                // Called from Node.js side after screenshotMacOS completes
+                let window = match self.get_webview(window_label) {
+                    Ok(w) => w,
+                    Err(e) => return JsonRpcResponse::error(id, EVAL_ERROR, e),
+                };
+                window.open_devtools();
+                JsonRpcResponse::success(id, serde_json::json!({ "restored": true }))
             }
 
             _ => JsonRpcResponse::error(
