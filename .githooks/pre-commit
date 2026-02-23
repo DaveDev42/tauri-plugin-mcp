@@ -12,10 +12,10 @@ echo "[pre-commit] TypeScript source changes detected, rebuilding..."
 pnpm build
 
 # Check for modified tracked dist files
-MODIFIED_DIST=$(git diff --name-only -- 'packages/*/dist/')
+MODIFIED_DIST=$(git diff --name-only -- 'packages/*/dist/**')
 
 # Check for new untracked dist files
-UNTRACKED_DIST=$(git ls-files --others --exclude-standard -- 'packages/*/dist/')
+UNTRACKED_DIST=$(git ls-files --others --exclude-standard -- 'packages/*/dist/**')
 
 if [ -n "$MODIFIED_DIST" ] || [ -n "$UNTRACKED_DIST" ]; then
   echo "[pre-commit] Auto-staging updated dist files..."
