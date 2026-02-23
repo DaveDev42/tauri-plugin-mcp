@@ -52,10 +52,10 @@ Claude Code <-> MCP Server (Node.js) <-> IPC Socket <-> Tauri Plugin (Rust) <-> 
 
 | Tool | Parameters | Description |
 |------|------------|-------------|
-| `app_status` | - | Returns `{ status, app }` |
+| `app_status` | `probe_bridge?: boolean` (default: false) | Returns `{ status, app, bridge? }` — with `probe_bridge: true`, includes per-window health (`initialized`, `bridge_alive`) |
 | `launch_app` | `wait_for_ready?: boolean` (default: true), `timeout_secs?: number` (default: 60), `features?: string[]` | Runs `pnpm tauri dev [--features ...]` |
 | `stop_app` | - | Kills app process tree |
-| `list_windows` | - | List all open windows with labels, titles, and focus state |
+| `list_windows` | - | List all open windows with labels, titles, focus state, and `bridge_initialized` |
 | `focus_window` | `window: string` | Focus a specific window by label |
 | `snapshot` | `window?: string` | Returns accessibility tree with ref numbers |
 | `click` | `ref?: number`, `selector?: string`, `window?: string` | Either ref or selector required |

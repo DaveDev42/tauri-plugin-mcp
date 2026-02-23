@@ -154,6 +154,13 @@ export class SocketManager {
         const result = await this.sendCommand('list_windows');
         return result;
     }
+    async probeBridge(windowLabel) {
+        const params = {};
+        if (windowLabel)
+            params.window = windowLabel;
+        const result = await this.sendCommand('probe_bridge', params);
+        return result.windows;
+    }
     async focusWindow(windowLabel) {
         const result = await this.sendCommand('focus_window', { window: windowLabel });
         return `Focused window: ${result.focused}`;

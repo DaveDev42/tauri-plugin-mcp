@@ -6,8 +6,10 @@ import { SocketManager } from '../managers/socket.js';
 export const toolSchemas = {
   app_status: {
     name: 'app_status',
-    description: 'Check app status',
-    inputSchema: z.object({}),
+    description: 'Check app status. Use probe_bridge to verify bridge health per window.',
+    inputSchema: z.object({
+      probe_bridge: z.boolean().optional().default(false).describe('Actively probe bridge health per window (adds latency)'),
+    }),
   },
   launch_app: {
     name: 'launch_app',
@@ -124,21 +126,33 @@ export type ToolName = keyof typeof toolSchemas;
 
 export function createToolHandlers(tauriManager: TauriManager, socketManager: SocketManager) {
   return {
-    app_status: async () => {
+    app_status: async (args: { probe_bridge?: boolean }) => {
       const status = tauriManager.getStatus();
       const config = tauriManager.getAppConfig();
+
+      const result: Record<string, unknown> = {
+        status,
+        app: config ? {
+          name: config.packageName,
+          binary: config.binaryName,
+          directory: config.appDir,
+        } : null,
+      };
+
+      // When running and probe requested, check bridge health per window
+      if (status === 'running' && args.probe_bridge) {
+        try {
+          result.bridge = await socketManager.probeBridge();
+        } catch {
+          // Socket dead or probe failed — omit bridge field (backward compatible)
+        }
+      }
+
       return {
         content: [
           {
             type: 'text' as const,
-            text: JSON.stringify({
-              status,
-              app: config ? {
-                name: config.packageName,
-                binary: config.binaryName,
-                directory: config.appDir,
-              } : null,
-            }, null, 2),
+            text: JSON.stringify(result, null, 2),
           },
         ],
       };

@@ -71,6 +71,14 @@ impl McpState {
     async fn set_window_initialized(&self, label: String) {
         self.initialized_windows.lock().await.insert(label);
     }
+
+    async fn clear_window_initialized(&self, label: &str) {
+        self.initialized_windows.lock().await.remove(label);
+    }
+
+    async fn get_initialized_windows(&self) -> HashSet<String> {
+        self.initialized_windows.lock().await.clone()
+    }
 }
 
 /// Trait for handling debug commands
@@ -159,12 +167,43 @@ impl<R: Runtime> IpcCommandHandler<R> {
         }
     }
 
-    /// Execute JavaScript via IPC bridge on a specific window and wait for result
-    /// Automatically injects the bridge if not initialized for this window
+    /// Check if an error indicates the bridge is dead or broken
+    fn is_bridge_error(error: &str) -> bool {
+        error.contains("Timeout waiting for eval result")
+            || error.contains("Channel closed unexpectedly")
+            || error.contains("Failed to execute script")
+            || error.contains("Failed to inject MCP bridge")
+    }
+
+    /// Execute JavaScript via IPC bridge with a single retry on bridge errors.
+    /// On first failure, the bridge is invalidated (by `_once`), and the retry
+    /// triggers re-injection automatically with a shorter timeout.
     async fn eval_with_result_on_window(
         &self,
         window_label: Option<&str>,
         script: &str,
+    ) -> Result<serde_json::Value, String> {
+        match self.eval_with_result_on_window_once(window_label, script, 30).await {
+            Ok(result) => Ok(result),
+            Err(e) if Self::is_bridge_error(&e) => {
+                warn!("Bridge error on first attempt, retrying with re-injection: {}", e);
+                // Use shorter timeout for retry — if a freshly injected bridge
+                // doesn't respond in 5s, it's truly dead
+                self.eval_with_result_on_window_once(window_label, script, 5).await
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Execute JavaScript via IPC bridge on a specific window and wait for result.
+    /// Automatically injects the bridge if not initialized for this window.
+    /// On bridge errors (timeout, channel closed, eval failure), invalidates the
+    /// bridge state so the next call will re-inject.
+    async fn eval_with_result_on_window_once(
+        &self,
+        window_label: Option<&str>,
+        script: &str,
+        timeout_secs: u64,
     ) -> Result<serde_json::Value, String> {
         // Get target window
         let window = self.get_webview(window_label)?;
@@ -206,22 +245,75 @@ impl<R: Runtime> IpcCommandHandler<R> {
         if let Err(e) = window.eval(&js) {
             let mut pending = self.state.pending.lock().await;
             pending.remove(&request_id);
+            self.state.clear_window_initialized(&label).await;
             return Err(format!("Failed to execute script: {}", e));
         }
 
         // Wait for result with timeout
-        let timeout = tokio::time::Duration::from_secs(30);
+        let timeout = tokio::time::Duration::from_secs(timeout_secs);
         match tokio::time::timeout(timeout, rx).await {
             Ok(Ok(result)) => result,
-            Ok(Err(_)) => Err("Channel closed unexpectedly".to_string()),
+            Ok(Err(_)) => {
+                self.state.clear_window_initialized(&label).await;
+                Err("Channel closed unexpectedly".to_string())
+            }
             Err(_) => {
                 let mut pending = self.state.pending.lock().await;
                 pending.remove(&request_id);
-                Err("Timeout waiting for eval result".to_string())
+                drop(pending);
+                self.state.clear_window_initialized(&label).await;
+                Err(format!("Timeout waiting for eval result ({}s)", timeout_secs))
             }
         }
     }
 
+    /// Start a bridge health probe for a specific window (non-blocking).
+    /// Sends `return true` through __MCP_EVAL__ and returns the receiver.
+    /// Returns None if the eval dispatch itself failed.
+    async fn start_bridge_probe(
+        &self,
+        window: &tauri::WebviewWindow<R>,
+        label: &str,
+    ) -> Option<(String, oneshot::Receiver<Result<serde_json::Value, String>>)> {
+        let request_id = uuid::Uuid::new_v4().to_string();
+        let (tx, rx) = oneshot::channel();
+
+        {
+            let mut pending = self.state.pending.lock().await;
+            pending.insert(request_id.clone(), tx);
+        }
+
+        let js = format!("window.__MCP_EVAL__('{}', 'return true')", request_id);
+        if window.eval(&js).is_err() {
+            let mut pending = self.state.pending.lock().await;
+            pending.remove(&request_id);
+            self.state.clear_window_initialized(label).await;
+            return None;
+        }
+
+        Some((request_id, rx))
+    }
+
+    /// Await a bridge probe result with timeout.
+    /// Cleans up on failure and invalidates bridge state.
+    async fn finish_bridge_probe(
+        &self,
+        label: &str,
+        request_id: String,
+        rx: oneshot::Receiver<Result<serde_json::Value, String>>,
+    ) -> bool {
+        let timeout = tokio::time::Duration::from_secs(3);
+        match tokio::time::timeout(timeout, rx).await {
+            Ok(Ok(Ok(_))) => true,
+            _ => {
+                let mut pending = self.state.pending.lock().await;
+                pending.remove(&request_id);
+                drop(pending);
+                self.state.clear_window_initialized(label).await;
+                false
+            }
+        }
+    }
 }
 
 #[async_trait::async_trait]
@@ -236,6 +328,7 @@ impl<R: Runtime + 'static> CommandHandler for IpcCommandHandler<R> {
 
             "list_windows" => {
                 let webviews = self.app.webview_windows();
+                let initialized = self.state.get_initialized_windows().await;
                 let windows: Vec<serde_json::Value> = webviews
                     .iter()
                     .map(|(label, window)| {
@@ -248,7 +341,8 @@ impl<R: Runtime + 'static> CommandHandler for IpcCommandHandler<R> {
                             "size": size.map(|s| serde_json::json!({
                                 "width": s.width,
                                 "height": s.height
-                            }))
+                            })),
+                            "bridge_initialized": initialized.contains(label.as_str())
                         })
                     })
                     .collect();
@@ -363,9 +457,20 @@ impl<R: Runtime + 'static> CommandHandler for IpcCommandHandler<R> {
                     .get("url")
                     .and_then(|v| v.as_str())
                     .unwrap_or("");
+                // Resolve label before eval to avoid double get_webview lookup
+                let resolved_label = self.get_webview(window_label)
+                    .map(|w| w.label().to_string())
+                    .ok();
                 let js = commands::navigate_js(url);
                 match self.eval_with_result_on_window(window_label, &js).await {
-                    Ok(result) => JsonRpcResponse::success(id, result),
+                    Ok(result) => {
+                        // Navigation destroys the page context; invalidate bridge
+                        // so the next command re-injects it
+                        if let Some(label) = &resolved_label {
+                            self.state.clear_window_initialized(label).await;
+                        }
+                        JsonRpcResponse::success(id, result)
+                    }
                     Err(e) => JsonRpcResponse::error(id, EVAL_ERROR, e),
                 }
             }
@@ -532,6 +637,54 @@ impl<R: Runtime + 'static> CommandHandler for IpcCommandHandler<R> {
                     Ok(result) => JsonRpcResponse::success(id, result),
                     Err(e) => JsonRpcResponse::error(id, EVAL_ERROR, e),
                 }
+            }
+
+            "probe_bridge" => {
+                let webviews = self.app.webview_windows();
+                let target_windows: Vec<(String, tauri::WebviewWindow<R>)> = if let Some(label) = window_label {
+                    match webviews.get(label) {
+                        Some(w) => vec![(label.to_string(), w.clone())],
+                        None => return JsonRpcResponse::error(id, EVAL_ERROR, format!("Window '{}' not found", label)),
+                    }
+                } else {
+                    webviews.iter().map(|(l, w)| (l.clone(), w.clone())).collect()
+                };
+
+                // Phase 1: Dispatch all probes (non-blocking eval sends)
+                let initialized = self.state.get_initialized_windows().await;
+                struct PendingProbe {
+                    label: String,
+                    is_init: bool,
+                    rx: Option<(String, oneshot::Receiver<Result<serde_json::Value, String>>)>,
+                }
+                let mut pending_probes = Vec::new();
+                for (label, window) in &target_windows {
+                    let is_init = initialized.contains(label.as_str());
+                    let rx = if is_init {
+                        self.start_bridge_probe(window, label).await
+                    } else {
+                        None
+                    };
+                    pending_probes.push(PendingProbe { label: label.clone(), is_init, rx });
+                }
+
+                // Phase 2: Collect results — awaits are sequential but timeouts
+                // overlap because all evals were dispatched in Phase 1
+                let mut results = serde_json::Map::new();
+                for probe in pending_probes {
+                    let alive = match probe.rx {
+                        Some((request_id, rx)) => {
+                            self.finish_bridge_probe(&probe.label, request_id, rx).await
+                        }
+                        None => false,
+                    };
+                    results.insert(probe.label, serde_json::json!({
+                        "initialized": probe.is_init,
+                        "bridge_alive": alive
+                    }));
+                }
+
+                JsonRpcResponse::success(id, serde_json::json!({ "windows": results }))
             }
 
             "restore_devtools" => {

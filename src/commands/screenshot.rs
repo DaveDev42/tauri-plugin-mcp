@@ -38,15 +38,24 @@ pub fn get_window_id_by_pid(pid: u32) -> Result<u32, String> {
     Ok(window_id)
 }
 
-/// Check if Screen Recording permission is granted on macOS
+/// Check if Screen Recording permission is granted on macOS.
+/// If not granted, triggers the system permission prompt via CGRequestScreenCaptureAccess.
 #[cfg(target_os = "macos")]
 fn check_screen_recording_permission() -> bool {
-    // CGPreflightScreenCaptureAccess returns true if permission is granted
-    // Note: This API is deprecated in macOS Sequoia 15.1+, but still works
     extern "C" {
         fn CGPreflightScreenCaptureAccess() -> bool;
+        fn CGRequestScreenCaptureAccess() -> bool;
     }
-    unsafe { CGPreflightScreenCaptureAccess() }
+    unsafe {
+        if CGPreflightScreenCaptureAccess() {
+            return true;
+        }
+        // Trigger the system permission prompt (return value ignored —
+        // granting permission requires an app restart to take effect)
+        let _ = CGRequestScreenCaptureAccess();
+        // Re-check (user likely needs to grant + restart app for it to take effect)
+        CGPreflightScreenCaptureAccess()
+    }
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -126,9 +135,8 @@ pub fn capture_window_by_title(pid: u32, title: &str) -> Result<serde_json::Valu
     // Check Screen Recording permission on macOS
     if !check_screen_recording_permission() {
         return Err(
-            "Screen Recording permission required. \
-            Grant permission in System Preferences > Privacy & Security > Screen Recording, \
-            then restart the app."
+            "Screen Recording permission required. A system prompt should appear — \
+            grant permission, then restart the app for it to take effect."
                 .to_string(),
         );
     }
@@ -204,9 +212,8 @@ pub fn capture_window_by_pid(pid: u32) -> Result<serde_json::Value, String> {
     // Check Screen Recording permission on macOS
     if !check_screen_recording_permission() {
         return Err(
-            "Screen Recording permission required. \
-            Grant permission in System Preferences > Privacy & Security > Screen Recording, \
-            then restart the app."
+            "Screen Recording permission required. A system prompt should appear — \
+            grant permission, then restart the app for it to take effect."
                 .to_string(),
         );
     }

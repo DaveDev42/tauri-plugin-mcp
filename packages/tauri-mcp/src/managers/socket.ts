@@ -195,9 +195,18 @@ export class SocketManager {
 
   // Multi-window support methods
 
-  async listWindows(): Promise<{ windows: Array<{ label: string; title: string; focused: boolean; visible: boolean; size: { width: number; height: number } | null }> }> {
-    const result = await this.sendCommand('list_windows') as { windows: Array<{ label: string; title: string; focused: boolean; visible: boolean; size: { width: number; height: number } | null }> };
+  async listWindows(): Promise<{ windows: Array<{ label: string; title: string; focused: boolean; visible: boolean; size: { width: number; height: number } | null; bridge_initialized: boolean }> }> {
+    const result = await this.sendCommand('list_windows') as { windows: Array<{ label: string; title: string; focused: boolean; visible: boolean; size: { width: number; height: number } | null; bridge_initialized: boolean }> };
     return result;
+  }
+
+  async probeBridge(windowLabel?: string): Promise<Record<string, { initialized: boolean; bridge_alive: boolean }>> {
+    const params: Record<string, unknown> = {};
+    if (windowLabel) params.window = windowLabel;
+    const result = await this.sendCommand('probe_bridge', params) as {
+      windows: Record<string, { initialized: boolean; bridge_alive: boolean }>;
+    };
+    return result.windows;
   }
 
   async focusWindow(windowLabel: string): Promise<string> {
