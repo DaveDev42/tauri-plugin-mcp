@@ -138,6 +138,10 @@ export declare class TauriManager {
         message: string;
     }>;
     /**
+     * Clean up Unix domain socket file
+     */
+    private cleanupSocketFile;
+    /**
      * Synchronous stop for use in process.on('exit') handler
      * Uses spawnSync to ensure cleanup happens before Node.js exits
      */

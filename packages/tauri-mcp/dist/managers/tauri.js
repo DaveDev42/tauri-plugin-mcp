@@ -718,19 +718,9 @@ export class TauriManager {
         return this.outputBuffer.slice(-20).join('\n');
     }
     async stop() {
-        // Clean up socket file (Unix only)
-        if (process.platform !== 'win32') {
-            const socketPath = this.getSocketPath();
-            if (fs.existsSync(socketPath)) {
-                try {
-                    fs.unlinkSync(socketPath);
-                }
-                catch (e) {
-                    // Ignore
-                }
-            }
-        }
         if (!this.process) {
+            // Clean up stale socket file even if no managed process (Unix only)
+            this.cleanupSocketFile();
             return { message: 'App was not running' };
         }
         return new Promise((resolve) => {
@@ -740,6 +730,8 @@ export class TauriManager {
                 this.status = 'not_running';
                 this.detectedPipePath = null;
                 this.detectedUnixSocketPath = null;
+                // Clean up socket file after process exits
+                this.cleanupSocketFile();
                 resolve({ message: 'App stopped' });
             });
             // Send SIGTERM
@@ -773,17 +765,17 @@ export class TauriManager {
                     this.status = 'not_running';
                     this.detectedPipePath = null;
                     this.detectedUnixSocketPath = null;
+                    // Clean up socket file after force kill
+                    this.cleanupSocketFile();
                     resolve({ message: 'App force stopped' });
                 }
             }, 5000);
         });
     }
     /**
-     * Synchronous stop for use in process.on('exit') handler
-     * Uses spawnSync to ensure cleanup happens before Node.js exits
+     * Clean up Unix domain socket file
      */
-    stopSync() {
-        // Clean up socket file (Unix only)
+    cleanupSocketFile() {
         if (process.platform !== 'win32') {
             const socketPath = this.getSocketPath();
             if (fs.existsSync(socketPath)) {
@@ -795,14 +787,22 @@ export class TauriManager {
                 }
             }
         }
+    }
+    /**
+     * Synchronous stop for use in process.on('exit') handler
+     * Uses spawnSync to ensure cleanup happens before Node.js exits
+     */
+    stopSync() {
         if (!this.process) {
             // No managed process, but try to kill orphan processes anyway
             this.cleanupOrphanProcessesSync();
+            this.cleanupSocketFile();
             return;
         }
         const pid = this.process.pid;
         if (!pid) {
             this.cleanupOrphanProcessesSync();
+            this.cleanupSocketFile();
             return;
         }
         // Kill process synchronously
@@ -832,41 +832,68 @@ export class TauriManager {
         this.status = 'not_running';
         this.detectedPipePath = null;
         this.detectedUnixSocketPath = null;
+        // Clean up socket file after process is killed
+        this.cleanupSocketFile();
     }
     cleanupOrphanProcessesSync() {
         if (!this.appConfig)
             return;
+        const pid = this.process?.pid;
         if (process.platform === 'win32') {
-            spawnSync('taskkill', ['/IM', `${this.appConfig.binaryName}.exe`, '/F'], {
-                stdio: 'ignore',
-                shell: true,
-            });
+            if (pid) {
+                // Kill the process tree by PID (only this instance)
+                spawnSync('taskkill', ['/PID', pid.toString(), '/T', '/F'], {
+                    stdio: 'ignore',
+                    shell: true,
+                });
+            }
         }
         else {
-            // Kill by binary name
-            spawnSync('pkill', ['-9', this.appConfig.binaryName], { stdio: 'ignore' });
+            if (pid) {
+                // Kill child processes of the managed process (only this instance)
+                spawnSync('pkill', ['-9', '-P', pid.toString()], { stdio: 'ignore' });
+            }
+            else {
+                // No PID available (orphan scenario) - kill binary by cwd-scoped pattern
+                // Uses the binary running from this appDir's target/debug directory
+                const binaryPattern = `${this.appConfig.appDir.replace(/\//g, '\\/')}.*${this.appConfig.binaryName}`;
+                spawnSync('pkill', ['-9', '-f', binaryPattern], { stdio: 'ignore' });
+            }
+            // Kill tauri dev processes for this specific directory only
+            const pattern = `tauri dev.*${this.appConfig.appDir.replace(/\//g, '\\/')}`;
+            spawnSync('pkill', ['-9', '-f', pattern], { stdio: 'ignore' });
         }
     }
     cleanupOrphanProcesses() {
         if (!this.appConfig)
             return;
+        const pid = this.process?.pid;
         if (process.platform === 'win32') {
-            // On Windows, try to kill by binary name
-            try {
-                spawn('taskkill', ['/IM', `${this.appConfig.binaryName}.exe`, '/F'], {
-                    stdio: 'ignore',
-                    shell: true,
-                });
-            }
-            catch (e) {
-                // Ignore errors
+            if (pid) {
+                // Kill the process tree by PID (only this instance)
+                try {
+                    spawn('taskkill', ['/PID', pid.toString(), '/T', '/F'], {
+                        stdio: 'ignore',
+                        shell: true,
+                    });
+                }
+                catch (e) {
+                    // Ignore errors
+                }
             }
         }
         else {
             try {
-                // Kill by binary name
-                spawn('pkill', ['-9', this.appConfig.binaryName], { stdio: 'ignore' });
-                // Kill tauri dev processes for this directory
+                if (pid) {
+                    // Kill child processes of the managed process (only this instance)
+                    spawn('pkill', ['-9', '-P', pid.toString()], { stdio: 'ignore' });
+                }
+                else {
+                    // No PID available (orphan scenario) - kill binary by cwd-scoped pattern
+                    const binaryPattern = `${this.appConfig.appDir.replace(/\//g, '\\/')}.*${this.appConfig.binaryName}`;
+                    spawn('pkill', ['-9', '-f', binaryPattern], { stdio: 'ignore' });
+                }
+                // Kill tauri dev processes for this specific directory only
                 const pattern = `tauri dev.*${this.appConfig.appDir.replace(/\//g, '\\/')}`;
                 spawn('pkill', ['-9', '-f', pattern], { stdio: 'ignore' });
             }
