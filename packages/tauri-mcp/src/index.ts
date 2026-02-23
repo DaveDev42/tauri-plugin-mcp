@@ -1,6 +1,16 @@
 #!/usr/bin/env node
 
+import * as path from 'path';
 import { McpServer } from './server.js';
+
+// Auto-detect window prefix from repository directory name (if not explicitly set)
+if (!process.env.TAURI_MCP_WINDOW_PREFIX) {
+  const dirName = path.basename(process.cwd());
+  if (dirName) {
+    process.env.TAURI_MCP_WINDOW_PREFIX = dirName;
+    console.error(`[tauri-mcp] Auto-detected window prefix: ${dirName}`);
+  }
+}
 
 // TAURI_PROJECT_ROOT environment variable or current working directory
 const projectRoot = process.env.TAURI_PROJECT_ROOT || process.cwd();
