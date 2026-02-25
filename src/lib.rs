@@ -748,6 +748,20 @@ impl<R: Runtime + 'static> CommandHandler for IpcCommandHandler<R> {
                 JsonRpcResponse::success(id, serde_json::json!({ "restored": true }))
             }
 
+            "app_exit" => {
+                // Graceful exit: bypasses window close prevention (system tray behavior)
+                // AppHandle::exit(0) ensures the process terminates even if close is intercepted
+                let app = self.app.clone();
+
+                // Schedule exit after a short delay to allow the response to be sent
+                tokio::spawn(async move {
+                    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                    app.exit(0);
+                });
+
+                JsonRpcResponse::success(id, serde_json::json!({"exiting": true}))
+            }
+
             _ => JsonRpcResponse::error(
                 id,
                 METHOD_NOT_FOUND,

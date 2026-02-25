@@ -523,6 +523,12 @@ export class TauriManager {
       }
     }
 
+    // Fallback to TAURI_MCP_FEATURES env if no features specified
+    if (features.length === 0 && process.env.TAURI_MCP_FEATURES) {
+      features = process.env.TAURI_MCP_FEATURES.split(',').map(f => f.trim()).filter(Boolean);
+      console.error(`[tauri-mcp] Using default features from TAURI_MCP_FEATURES: ${features.join(',')}`);
+    }
+
     if (!this.appConfig) {
       throw new Error('No Tauri app detected. Make sure src-tauri/Cargo.toml exists.');
     }
@@ -872,8 +878,26 @@ export class TauriManager {
       return { message: 'App was not running' };
     }
 
+    // Capture process reference before any async operation that might trigger exit
+    const proc = this.process!;
+
+    // Try graceful exit via JSON-RPC first (bypasses window close prevention)
+    try {
+      const socketPath = this.getSocketPath();
+      if (fs.existsSync(socketPath)) {
+        await this.sendExitCommand(socketPath);
+      }
+    } catch {
+      // Fall through to SIGTERM
+    }
+
+    // If app already exited via app_exit command, the exit handler from launch() already cleaned up
+    if (!this.process) {
+      this.cleanupSocketFile();
+      return { message: 'App stopped' };
+    }
+
     return new Promise((resolve) => {
-      const proc = this.process!;
 
       proc.on('exit', () => {
         this.process = null;
@@ -911,7 +935,12 @@ export class TauriManager {
       // Force kill after 5 seconds
       setTimeout(() => {
         if (this.process === proc) {
-          proc.kill('SIGKILL');
+          // Kill process GROUP to ensure app binary is also terminated
+          try {
+            process.kill(-proc.pid!, 'SIGKILL');
+          } catch {
+            try { proc.kill('SIGKILL'); } catch { /* already exited */ }
+          }
           this.cleanupOrphanProcesses();
           this.process = null;
           this.status = 'not_running';
@@ -940,6 +969,41 @@ export class TauriManager {
         }
       }
     }
+  }
+
+  /**
+   * Send app_exit JSON-RPC command via Unix socket to gracefully terminate the app.
+   * This bypasses window close prevention (e.g., system tray behavior) by calling
+   * AppHandle::exit(0) on the Rust side.
+   */
+  private sendExitCommand(socketPath: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        client.destroy();
+        reject(new Error('app_exit command timed out'));
+      }, 2000);
+
+      const client = net.createConnection(socketPath, () => {
+        const request = JSON.stringify({
+          jsonrpc: '2.0',
+          id: Date.now(),
+          method: 'app_exit',
+          params: {},
+        }) + '\n';
+        client.write(request);
+      });
+
+      client.on('data', () => {
+        clearTimeout(timeout);
+        client.end();
+        resolve();
+      });
+
+      client.on('error', (err) => {
+        clearTimeout(timeout);
+        reject(err);
+      });
+    });
   }
 
   /**
@@ -1027,6 +1091,19 @@ export class TauriManager {
    */
   private async forceStopExternalApp(): Promise<void> {
     console.error('[tauri-mcp] Force-stopping external app...');
+
+    // Try graceful exit via app_exit command first
+    try {
+      const socketPath = this.getSocketPath();
+      await this.sendExitCommand(socketPath);
+      await this.sleep(500);
+      if (!fs.existsSync(socketPath)) {
+        console.error('[tauri-mcp] External app exited gracefully via app_exit');
+        return;
+      }
+    } catch {
+      // Fall through to kill-based approach
+    }
 
     const pid = this.findSocketOwnerPid();
     if (pid) {

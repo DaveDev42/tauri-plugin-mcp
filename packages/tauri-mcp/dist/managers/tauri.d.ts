@@ -143,6 +143,12 @@ export declare class TauriManager {
      */
     private cleanupSocketFile;
     /**
+     * Send app_exit JSON-RPC command via Unix socket to gracefully terminate the app.
+     * This bypasses window close prevention (e.g., system tray behavior) by calling
+     * AppHandle::exit(0) on the Rust side.
+     */
+    private sendExitCommand;
+    /**
      * Synchronous stop for use in process.on('exit') handler
      * Uses spawnSync to ensure cleanup happens before Node.js exits
      */

@@ -265,3 +265,10 @@ impl DebugServer {
         format!(r"\\.\pipe\{}", self.socket_path)
     }
 }
+
+#[cfg(unix)]
+impl Drop for DebugServer {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.socket_path);
+    }
+}
