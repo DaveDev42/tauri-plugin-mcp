@@ -9,6 +9,9 @@ Enables AI assistants like Claude to interact with your Tauri desktop app for te
 - **Cross-platform**: Windows (Named Pipes) + macOS/Linux (Unix Sockets)
 - **No CDP dependency**: Works on all WebView backends including macOS WKWebView
 - **MCP integration**: Direct integration with Claude Code and other MCP clients
+- **Multi-window support**: Target any window by label; auto bridge injection
+- **Unified logging**: Build, runtime, console, and network logs with filtering
+- **Dynamic port allocation**: Automatic random port assignment to avoid conflicts
 
 ## Prerequisites
 
@@ -250,20 +253,41 @@ If the package is installed in a subdirectory (e.g., `apps/desktop`):
 
 ## Available Tools
 
+### Session Lifecycle
+
 | Tool | Parameters | Description |
 |------|------------|-------------|
-| `get_session_status` | - | Check session (app) status |
-| `start_session` | `wait_for_ready?: boolean`, `timeout_secs?: number`, `features?: string[]` | Start session (launch Tauri app via `pnpm tauri dev`) |
-| `stop_session` | - | Stop session (kill app) |
-| `snapshot` | - | Get accessibility tree (returns ref numbers) |
-| `click` | `ref?: number`, `selector?: string` | Click element by ref or CSS selector |
-| `fill` | `ref?: number`, `selector?: string`, `value: string` | Fill input field |
-| `press_key` | `key: string` | Press keyboard key |
-| `navigate` | `url: string` | Navigate to URL |
-| `screenshot` | - | Take screenshot (uses html2canvas) |
-| `evaluate_script` | `script: string` | Execute custom JavaScript |
-| `get_console_logs` | - | Get console logs |
-| `get_network_logs` | - | Get network logs |
+| `get_session_status` | `probe_bridge?: boolean` | Check session (app) status; with `probe_bridge: true`, includes per-window bridge health |
+| `start_session` | `wait_for_ready?: boolean`, `timeout_secs?: number`, `features?: string[]`, `devtools?: boolean` | Start session (launch Tauri app via `pnpm tauri dev`) |
+| `stop_session` | - | Stop session (kill app process tree) |
+
+### Window Management
+
+| Tool | Parameters | Description |
+|------|------------|-------------|
+| `list_windows` | - | List all open windows with labels, titles, focus state, and bridge status |
+| `focus_window` | `window: string` | Focus a specific window by label |
+
+### Interaction
+
+All interaction tools accept an optional `window` parameter to target a specific window (defaults to focused window).
+
+| Tool | Parameters | Description |
+|------|------------|-------------|
+| `snapshot` | `window?` | Get accessibility tree with ref numbers for `click`/`fill` |
+| `click` | `ref?: number`, `selector?: string`, `window?` | Click element by ref or CSS selector |
+| `fill` | `ref?: number`, `selector?: string`, `value: string`, `window?` | Fill input field |
+| `press_key` | `key: string`, `window?` | Press keyboard key (e.g., "Enter", "Tab") |
+| `navigate` | `url: string`, `window?` | Navigate to URL |
+| `screenshot` | `window?` | Take screenshot via native OS capture |
+| `evaluate_script` | `script: string`, `window?` | Execute JavaScript in webview |
+
+### Observability
+
+| Tool | Parameters | Description |
+|------|------------|-------------|
+| `get_logs` | `filter?: string[]`, `limit?: number`, `clear?: boolean`, `window?` | Unified log access (build, runtime, console, network) with source/level filtering |
+| `get_restart_events` | `limit?: number`, `clear?: boolean`, `window?` | Get recent app restart/reload events with triggering files |
 
 ### Using `features` parameter
 
