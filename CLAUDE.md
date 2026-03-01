@@ -55,7 +55,7 @@ Claude Code <-> MCP Server (Node.js) <-> IPC Socket <-> Tauri Plugin (Rust) <-> 
 | Tool | Parameters | Description |
 |------|------------|-------------|
 | `get_session_status` | `probe_bridge?: boolean` | Returns `{ status, app, bridge? }` — with `probe_bridge: true`, includes per-window health (`initialized`, `bridge_alive`) |
-| `start_session` | `wait_for_ready?: boolean`, `timeout_secs?: number`, `features?: string[]`, `devtools?: boolean` | Runs `pnpm tauri dev [--features ...]` |
+| `start_session` | `wait_for_ready?: boolean`, `timeout_secs?: number`, `features?: string[]`, `devtools?: boolean` | Runs `pnpm tauri dev [--features ...]`. `devtools: true` opens WebView DevTools on launch (sets `TAURI_MCP_DEVTOOLS=1`) |
 | `stop_session` | - | Kills app process tree |
 
 ### Window Management
