@@ -227,8 +227,11 @@ impl DebugServer {
 
             let response = match serde_json::from_str::<JsonRpcRequest>(line) {
                 Ok(request) => {
-                    let guard = handler.lock().await;
-                    if let Some(ref h) = *guard {
+                    let handler_clone = {
+                        let guard = handler.lock().await;
+                        guard.clone()
+                    };
+                    if let Some(h) = handler_clone {
                         h.handle_request(request).await
                     } else {
                         JsonRpcResponse::error(None, METHOD_NOT_FOUND, "Handler not initialized")

@@ -8,6 +8,7 @@ import { promisify } from 'util';
 import { TauriManager } from './tauri.js';
 const execFileAsync = promisify(execFile);
 const SOCKET_FILE_NAME = '.tauri-mcp.sock';
+let requestIdCounter = 0;
 export class SocketManager {
     projectRoot;
     socketPathProvider = null;
@@ -98,10 +99,11 @@ export class SocketManager {
     async sendCommandOnce(method, params = {}) {
         const socketPath = this.getSocketPath();
         return new Promise((resolve, reject) => {
+            let settled = false;
             const client = net.createConnection(socketPath, () => {
                 const request = {
                     jsonrpc: '2.0',
-                    id: Date.now(),
+                    id: ++requestIdCounter,
                     method,
                     params,
                 };
@@ -121,6 +123,7 @@ export class SocketManager {
                 try {
                     const response = JSON.parse(data);
                     clearTimeout(timeout);
+                    settled = true;
                     client.end();
                     if (response.error) {
                         reject(new Error(response.error.message));
@@ -146,10 +149,12 @@ export class SocketManager {
                 }
             });
             client.on('close', () => {
+                if (settled)
+                    return;
                 clearTimeout(timeout);
-                if (!data) {
-                    reject(new Error('Connection closed without response'));
-                }
+                reject(new Error(data
+                    ? 'Connection closed with incomplete response'
+                    : 'Connection closed without response'));
             });
         });
     }

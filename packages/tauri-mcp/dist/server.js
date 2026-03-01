@@ -129,6 +129,7 @@ export class McpServer {
     }
     async stop() {
         await this.tauriManager.stop();
+        await this.server.close();
     }
     /**
      * Synchronous stop for use in process.on('exit') handler

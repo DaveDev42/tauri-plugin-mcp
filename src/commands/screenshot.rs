@@ -5,39 +5,6 @@ use image::ImageFormat;
 use std::io::Cursor;
 use xcap::Window;
 
-/// Get the CGWindowID for the largest visible window belonging to the given PID.
-/// This is used on macOS to capture screenshots using the `screencapture` command.
-pub fn get_window_id_by_pid(pid: u32) -> Result<u32, String> {
-    tracing::debug!("Getting window ID for PID {}", pid);
-    let windows = Window::all().map_err(|e| format!("Failed to enumerate windows: {}", e))?;
-
-    let target = windows
-        .into_iter()
-        .filter(|w| w.current_monitor().is_ok())
-        .filter(|w| w.pid().map(|p| p == pid).unwrap_or(false))
-        .filter(|w| !w.is_minimized().unwrap_or(true))
-        .max_by_key(|w| {
-            let width = w.width().unwrap_or(0);
-            let height = w.height().unwrap_or(0);
-            width * height
-        })
-        .ok_or_else(|| format!("No visible window found for PID {}", pid))?;
-
-    let window_id = target
-        .id()
-        .map_err(|e| format!("Failed to get window ID: {}", e))?;
-
-    tracing::debug!(
-        "Found window ID {} for {:?} ({}x{})",
-        window_id,
-        target.title().unwrap_or_default(),
-        target.width().unwrap_or(0),
-        target.height().unwrap_or(0)
-    );
-
-    Ok(window_id)
-}
-
 /// Check if Screen Recording permission is granted on macOS.
 /// If not granted, triggers the system permission prompt via CGRequestScreenCaptureAccess.
 #[cfg(target_os = "macos")]
@@ -203,56 +170,6 @@ pub fn capture_window_by_title(pid: u32, title: &str) -> Result<serde_json::Valu
     );
 
     capture_xcap_window(target)
-}
-
-/// Capture window by process ID
-///
-/// Finds the largest visible window belonging to the given PID and captures it.
-pub fn capture_window_by_pid(pid: u32) -> Result<serde_json::Value, String> {
-    // Check Screen Recording permission on macOS
-    if !check_screen_recording_permission() {
-        return Err(
-            "Screen Recording permission required. A system prompt should appear — \
-            grant permission, then restart the app for it to take effect."
-                .to_string(),
-        );
-    }
-
-    tracing::debug!("Enumerating windows for PID {}", pid);
-    let windows = Window::all().map_err(|e| format!("Failed to enumerate windows: {}", e))?;
-    tracing::debug!("Found {} total windows", windows.len());
-
-    // Find windows matching the PID, filter out minimized ones, pick the largest
-    let matching_windows: Vec<_> = windows
-        .into_iter()
-        .filter(|w| w.current_monitor().is_ok())
-        .filter(|w| w.pid().map(|p| p == pid).unwrap_or(false))
-        .filter(|w| !w.is_minimized().unwrap_or(true))
-        .collect();
-
-    tracing::debug!(
-        "Found {} windows matching PID {} (not minimized)",
-        matching_windows.len(),
-        pid
-    );
-
-    let target = matching_windows
-        .into_iter()
-        .max_by_key(|w| {
-            let width = w.width().unwrap_or(0);
-            let height = w.height().unwrap_or(0);
-            width * height
-        })
-        .ok_or_else(|| format!("No visible window found for PID {}", pid))?;
-
-    tracing::debug!(
-        "Capturing window: {:?} ({}x{})",
-        target.title().unwrap_or_default(),
-        target.width().unwrap_or(0),
-        target.height().unwrap_or(0)
-    );
-
-    capture_xcap_window(&target)
 }
 
 /// Capture a specific xcap Window and return as base64 PNG

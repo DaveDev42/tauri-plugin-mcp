@@ -60,8 +60,8 @@ export interface RustRebuildEvent {
 const SOCKET_FILE_NAME = '.tauri-mcp.sock';
 
 export class TauriManager {
+  private static requestIdCounter = 0;
   private process: ChildProcess | null = null;
-  private status: AppStatus = 'not_running';
   private projectRoot: string;
   private appConfig: TauriAppConfig | null = null;
   private vitePort: number;
@@ -343,15 +343,15 @@ export class TauriManager {
       return this.detectedUnixSocketPath;
     }
 
-    // Fallback: calculate path (may not match Rust in edge cases)
-    return TauriManager.getUnixSocketPath(socketDir);
+    // Fallback: calculate path — pass projectRoot as hash input to match Rust side
+    return TauriManager.getUnixSocketPath(socketDir, this.projectRoot);
   }
 
   /**
    * Get Unix socket path, falling back to /tmp/ if path is too long for SUN_LEN
    * Uses same FNV-1a hash algorithm as the Rust plugin for consistency
    */
-  static getUnixSocketPath(socketDir: string): string {
+  static getUnixSocketPath(socketDir: string, hashInput?: string): string {
     const MAX_SOCKET_PATH_LEN = 104; // macOS SUN_LEN limit
     const directPath = path.join(socketDir, SOCKET_FILE_NAME);
 
@@ -360,7 +360,8 @@ export class TauriManager {
     }
 
     // Path too long - use /tmp/ with FNV-1a hash (matches Rust plugin)
-    const hash = TauriManager.fnv1aHash(socketDir);
+    // Hash input should match Rust's project_root for consistency
+    const hash = TauriManager.fnv1aHash(hashInput ?? socketDir);
     const tmpPath = `/tmp/tauri-mcp-${hash}.sock`;
     console.error(
       `[tauri-mcp] Socket path too long (${Buffer.byteLength(directPath, 'utf-8')} > ${MAX_SOCKET_PATH_LEN}), using: ${tmpPath}`
@@ -436,6 +437,29 @@ export class TauriManager {
     }
     const socketPath = this.getSocketPath();
     return fs.existsSync(socketPath);
+  }
+
+  /**
+   * Probe whether a socket/pipe is connectable (works on both Unix and Windows).
+   */
+  private probeSocket(socketPath: string): Promise<boolean> {
+    return new Promise((resolve) => {
+      let client: net.Socket;
+      const timeout = setTimeout(() => {
+        client.removeAllListeners();
+        client.destroy();
+        resolve(false);
+      }, 1000);
+      client = net.createConnection(socketPath, () => {
+        clearTimeout(timeout);
+        client.destroy();
+        resolve(true);
+      });
+      client.on('error', () => {
+        clearTimeout(timeout);
+        resolve(false);
+      });
+    });
   }
 
   private async isSocketReadyAsync(): Promise<boolean> {
@@ -677,7 +701,7 @@ export class TauriManager {
       shell: process.platform === 'win32',
     });
 
-    this.status = 'starting';
+
 
     // Reset output buffer for this launch
     this.outputBuffer = [];
@@ -705,7 +729,7 @@ export class TauriManager {
       console.error(`[tauri-mcp] Process exited with code ${code}`);
       this.outputBuffer.push(`[exit] Process exited with code ${code}`);
       this.process = null;
-      this.status = 'not_running';
+
       this.launchedAt = null;
       this.cleanupSocketFile();
     });
@@ -715,7 +739,7 @@ export class TauriManager {
         await this.waitForReady(timeoutSecs);
         const errors = this.parseBackendLogs(this.outputBuffer);
         const hasErrors = errors.some(e => e.level === 'error');
-        this.status = 'running';
+
         this.launchedAt = Date.now();
         return {
           status: hasErrors ? 'build_error' : 'launched',
@@ -747,7 +771,6 @@ export class TauriManager {
       }
     }
 
-    this.status = 'running';
     this.launchedAt = Date.now();
     return {
       status: 'launched',
@@ -817,7 +840,7 @@ export class TauriManager {
       const client = net.createConnection(socketPath, () => {
         const request = {
           jsonrpc: '2.0',
-          id: Date.now(),
+          id: ++TauriManager.requestIdCounter,
           method: 'ping',
           params: {},
         };
@@ -895,7 +918,9 @@ export class TauriManager {
     // Try graceful exit via JSON-RPC first (bypasses window close prevention)
     try {
       const socketPath = this.getSocketPath();
-      if (fs.existsSync(socketPath)) {
+      // On Windows, fs.existsSync doesn't work for named pipes — always attempt
+      const socketExists = process.platform === 'win32' || fs.existsSync(socketPath);
+      if (socketExists) {
         await this.sendExitCommand(socketPath);
       }
     } catch {
@@ -919,7 +944,6 @@ export class TauriManager {
           }
           this.cleanupOrphanProcesses();
           this.process = null;
-          this.status = 'not_running';
           this.launchedAt = null;
           this.detectedPipePath = null;
           this.detectedUnixSocketPath = null;
@@ -932,7 +956,6 @@ export class TauriManager {
       proc.on('exit', () => {
         clearTimeout(forceKillTimer);
         this.process = null;
-        this.status = 'not_running';
         this.launchedAt = null;
         this.detectedPipePath = null;
         this.detectedUnixSocketPath = null;
@@ -988,15 +1011,18 @@ export class TauriManager {
    */
   private sendExitCommand(socketPath: string): Promise<void> {
     return new Promise((resolve, reject) => {
+      let client: net.Socket;
+
       const timeout = setTimeout(() => {
+        client.removeAllListeners();
         client.destroy();
         reject(new Error('app_exit command timed out'));
       }, 2000);
 
-      const client = net.createConnection(socketPath, () => {
+      client = net.createConnection(socketPath, () => {
         const request = JSON.stringify({
           jsonrpc: '2.0',
-          id: Date.now(),
+          id: ++TauriManager.requestIdCounter,
           method: 'app_exit',
           params: {},
         }) + '\n';
@@ -1057,7 +1083,6 @@ export class TauriManager {
 
     this.cleanupOrphanProcessesSync();
     this.process = null;
-    this.status = 'not_running';
     this.launchedAt = null;
     this.detectedPipePath = null;
     this.detectedUnixSocketPath = null;
@@ -1107,7 +1132,11 @@ export class TauriManager {
       const socketPath = this.getSocketPath();
       await this.sendExitCommand(socketPath);
       await this.sleep(500);
-      if (!fs.existsSync(socketPath)) {
+      // On Windows, fs.existsSync doesn't work for named pipes — probe connection instead
+      const socketGone = process.platform === 'win32'
+        ? !await this.probeSocket(socketPath)
+        : !fs.existsSync(socketPath);
+      if (socketGone) {
         console.error('[tauri-mcp] External app exited gracefully via app_exit');
         return;
       }
@@ -1235,14 +1264,11 @@ export class TauriManager {
   getStatus(): AppStatus {
     if (this.process) {
       if (this.detectedPipePath || this.detectedUnixSocketPath || this.isSocketReady()) {
-        this.status = 'running';
-      } else {
-        this.status = 'starting';
+        return 'running';
       }
-    } else {
-      this.status = 'not_running';
+      return 'starting';
     }
-    return this.status;
+    return 'not_running';
   }
 
   getAppConfig(): TauriAppConfig | null {

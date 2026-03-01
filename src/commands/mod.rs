@@ -245,17 +245,17 @@ pub const SNAPSHOT_JS: &str = r#"
 
 /// JavaScript code to click an element by CSS selector
 pub fn click_js(selector: &str) -> String {
+    let selector = serde_json::to_string(selector).unwrap();
     format!(
         r#"
 const el = document.querySelector({selector});
 if (!el) {{
-    return {{ success: false, error: 'Element not found: {raw_selector}' }};
+    return {{ success: false, error: 'Element not found: ' + {selector} }};
 }}
 el.click();
 return {{ success: true }};
 "#,
-        selector = serde_json::to_string(selector).unwrap(),
-        raw_selector = selector
+        selector = selector
     )
 }
 
@@ -282,11 +282,12 @@ return {{ success: true }};
 /// JavaScript code to fill an input by CSS selector
 /// Uses native value setter to properly trigger React's synthetic event system
 pub fn fill_js(selector: &str, value: &str) -> String {
+    let selector = serde_json::to_string(selector).unwrap();
     format!(
         r#"
 const el = document.querySelector({selector});
 if (!el) {{
-    return {{ success: false, error: 'Element not found: {raw_selector}' }};
+    return {{ success: false, error: 'Element not found: ' + {selector} }};
 }}
 
 // Get the native value setter to bypass React's synthetic event system
@@ -312,8 +313,7 @@ el.dispatchEvent(new Event('change', {{ bubbles: true }}));
 
 return {{ success: true }};
 "#,
-        selector = serde_json::to_string(selector).unwrap(),
-        raw_selector = selector,
+        selector = selector,
         value = serde_json::to_string(value).unwrap()
     )
 }

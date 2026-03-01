@@ -46,8 +46,8 @@ export interface RustRebuildEvent {
     timestamp: number;
 }
 export declare class TauriManager {
+    private static requestIdCounter;
     private process;
-    private status;
     private projectRoot;
     private appConfig;
     private vitePort;
@@ -96,7 +96,7 @@ export declare class TauriManager {
      * Get Unix socket path, falling back to /tmp/ if path is too long for SUN_LEN
      * Uses same FNV-1a hash algorithm as the Rust plugin for consistency
      */
-    static getUnixSocketPath(socketDir: string): string;
+    static getUnixSocketPath(socketDir: string, hashInput?: string): string;
     /**
      * FNV-1a hash - same algorithm as Rust side for deterministic socket paths
      */
@@ -117,6 +117,10 @@ export declare class TauriManager {
      */
     private parseUnixSocketPathFromLogs;
     private isSocketReady;
+    /**
+     * Probe whether a socket/pipe is connectable (works on both Unix and Windows).
+     */
+    private probeSocket;
     private isSocketReadyAsync;
     /**
      * Check if Rust build cache exists (incremental build will be fast)

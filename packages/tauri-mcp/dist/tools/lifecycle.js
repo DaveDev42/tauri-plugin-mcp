@@ -223,7 +223,7 @@ export function createToolHandlers(tauriManager, socketManager) {
             };
         },
         click: async (args) => {
-            if (!args.ref && !args.selector) {
+            if (args.ref == null && !args.selector) {
                 throw new Error('Either ref or selector must be provided');
             }
             const result = await socketManager.click(args);
@@ -237,7 +237,7 @@ export function createToolHandlers(tauriManager, socketManager) {
             };
         },
         fill: async (args) => {
-            if (!args.ref && !args.selector) {
+            if (args.ref == null && !args.selector) {
                 throw new Error('Either ref or selector must be provided');
             }
             const result = await socketManager.fill(args);

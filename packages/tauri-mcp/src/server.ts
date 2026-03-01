@@ -156,6 +156,7 @@ export class McpServer {
 
   async stop() {
     await this.tauriManager.stop();
+    await this.server.close();
   }
 
   /**
