@@ -24,9 +24,17 @@ async function shutdown(reason: string) {
 
   console.error(`[tauri-mcp] Shutting down (${reason})...`);
   try {
-    await server.stop();
+    await Promise.race([
+      server.stop(),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('shutdown timed out')), 10_000)
+      ),
+    ]);
   } catch (e) {
     console.error('[tauri-mcp] Error during shutdown:', e);
+    try {
+      server.stopSync();
+    } catch {}
   }
   process.exit(0);
 }

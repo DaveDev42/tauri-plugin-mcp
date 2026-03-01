@@ -109,11 +109,18 @@ export class SocketManager {
                 client.write(JSON.stringify(request) + '\n');
             });
             let data = '';
+            // Timeout after 30 seconds
+            const timeout = setTimeout(() => {
+                client.removeAllListeners();
+                client.destroy();
+                reject(new Error('Command timed out after 30 seconds'));
+            }, 30000);
             client.on('data', (chunk) => {
                 data += chunk.toString();
                 // Try to parse complete JSON response
                 try {
                     const response = JSON.parse(data);
+                    clearTimeout(timeout);
                     client.end();
                     if (response.error) {
                         reject(new Error(response.error.message));
@@ -127,6 +134,7 @@ export class SocketManager {
                 }
             });
             client.on('error', (err) => {
+                clearTimeout(timeout);
                 if (err.code === 'ENOENT') {
                     reject(new Error('App not running. Use launch_app first.'));
                 }
@@ -138,15 +146,11 @@ export class SocketManager {
                 }
             });
             client.on('close', () => {
+                clearTimeout(timeout);
                 if (!data) {
                     reject(new Error('Connection closed without response'));
                 }
             });
-            // Timeout after 30 seconds
-            setTimeout(() => {
-                client.destroy();
-                reject(new Error('Command timed out after 30 seconds'));
-            }, 30000);
         });
     }
     // Multi-window support methods

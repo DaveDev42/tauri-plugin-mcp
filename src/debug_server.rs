@@ -25,6 +25,7 @@ pub const SOCKET_FILE_NAME: &str = ".tauri-mcp.sock";
 pub struct DebugServer {
     socket_path: String,
     handler: Arc<Mutex<Option<Arc<dyn CommandHandler>>>>,
+    accept_task: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
 
 impl DebugServer {
@@ -33,6 +34,7 @@ impl DebugServer {
         Self {
             socket_path,
             handler: Arc::new(Mutex::new(None)),
+            accept_task: std::sync::Mutex::new(None),
         }
     }
 
@@ -126,7 +128,7 @@ impl DebugServer {
 
         let handler = Arc::clone(&self.handler);
 
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             loop {
                 match listener.accept().await {
                     Ok(stream) => {
@@ -143,6 +145,10 @@ impl DebugServer {
                 }
             }
         });
+
+        if let Ok(mut guard) = self.accept_task.lock() {
+            *guard = Some(handle);
+        }
 
         Ok(())
     }
@@ -167,7 +173,7 @@ impl DebugServer {
 
         let handler = Arc::clone(&self.handler);
 
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             loop {
                 match listener.accept().await {
                     Ok(stream) => {
@@ -187,6 +193,10 @@ impl DebugServer {
                 }
             }
         });
+
+        if let Ok(mut guard) = self.accept_task.lock() {
+            *guard = Some(handle);
+        }
 
         Ok(())
     }
@@ -264,11 +274,28 @@ impl DebugServer {
     pub fn connection_path(&self) -> String {
         format!(r"\\.\pipe\{}", self.socket_path)
     }
+
+    /// Abort the accept loop task if it is running
+    fn abort_accept_task(&self) {
+        if let Ok(guard) = self.accept_task.lock() {
+            if let Some(handle) = guard.as_ref() {
+                handle.abort();
+            }
+        }
+    }
 }
 
 #[cfg(unix)]
 impl Drop for DebugServer {
     fn drop(&mut self) {
+        self.abort_accept_task();
         let _ = std::fs::remove_file(&self.socket_path);
+    }
+}
+
+#[cfg(windows)]
+impl Drop for DebugServer {
+    fn drop(&mut self) {
+        self.abort_accept_task();
     }
 }

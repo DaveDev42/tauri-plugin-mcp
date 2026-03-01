@@ -151,12 +151,20 @@ export class SocketManager {
 
       let data = '';
 
+      // Timeout after 30 seconds
+      const timeout = setTimeout(() => {
+        client.removeAllListeners();
+        client.destroy();
+        reject(new Error('Command timed out after 30 seconds'));
+      }, 30000);
+
       client.on('data', (chunk) => {
         data += chunk.toString();
 
         // Try to parse complete JSON response
         try {
           const response: JsonRpcResponse = JSON.parse(data);
+          clearTimeout(timeout);
           client.end();
 
           if (response.error) {
@@ -170,6 +178,7 @@ export class SocketManager {
       });
 
       client.on('error', (err) => {
+        clearTimeout(timeout);
         if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
           reject(new Error('App not running. Use launch_app first.'));
         } else if ((err as NodeJS.ErrnoException).code === 'ECONNREFUSED') {
@@ -180,16 +189,11 @@ export class SocketManager {
       });
 
       client.on('close', () => {
+        clearTimeout(timeout);
         if (!data) {
           reject(new Error('Connection closed without response'));
         }
       });
-
-      // Timeout after 30 seconds
-      setTimeout(() => {
-        client.destroy();
-        reject(new Error('Command timed out after 30 seconds'));
-      }, 30000);
     });
   }
 

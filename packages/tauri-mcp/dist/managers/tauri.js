@@ -365,18 +365,22 @@ export class TauriManager {
         // Store detected path for later use
         this.detectedPipePath = pipePath;
         return new Promise((resolve) => {
-            const client = net.createConnection(pipePath, () => {
+            let client;
+            // Timeout after 1 second
+            const timeout = setTimeout(() => {
+                client.removeAllListeners();
+                client.destroy();
+                resolve(false);
+            }, 1000);
+            client = net.createConnection(pipePath, () => {
+                clearTimeout(timeout);
                 client.destroy();
                 resolve(true);
             });
             client.on('error', () => {
+                clearTimeout(timeout);
                 resolve(false);
             });
-            // Timeout after 1 second
-            setTimeout(() => {
-                client.destroy();
-                resolve(false);
-            }, 1000);
         });
     }
     /**
@@ -556,7 +560,7 @@ export class TauriManager {
                 // Keep VITE_PORT for backwards compatibility
                 VITE_PORT: this.vitePort.toString(),
             },
-            detached: false,
+            detached: process.platform !== 'win32',
             shell: process.platform === 'win32',
         });
         this.status = 'starting';
@@ -587,6 +591,7 @@ export class TauriManager {
             this.process = null;
             this.status = 'not_running';
             this.launchedAt = null;
+            this.cleanupSocketFile();
         });
         if (waitForReady) {
             try {
@@ -693,10 +698,17 @@ export class TauriManager {
                 client.write(JSON.stringify(request) + '\n');
             });
             let data = '';
+            // Timeout after 2 seconds
+            const timeout = setTimeout(() => {
+                client.removeAllListeners();
+                client.destroy();
+                resolve(false);
+            }, 2000);
             client.on('data', (chunk) => {
                 data += chunk.toString();
                 try {
                     const response = JSON.parse(data);
+                    clearTimeout(timeout);
                     client.end();
                     // Check if ping was successful (pong: true)
                     if (response.result?.pong === true) {
@@ -715,18 +727,15 @@ export class TauriManager {
                 }
             });
             client.on('error', () => {
+                clearTimeout(timeout);
                 resolve(false);
             });
             client.on('close', () => {
+                clearTimeout(timeout);
                 if (!data) {
                     resolve(false);
                 }
             });
-            // Timeout after 2 seconds
-            setTimeout(() => {
-                client.destroy();
-                resolve(false);
-            }, 2000);
         });
     }
     getRecentLogs() {
@@ -766,7 +775,31 @@ export class TauriManager {
             return { message: 'App stopped' };
         }
         return new Promise((resolve) => {
+            const forceKillTimer = setTimeout(() => {
+                if (this.process === proc) {
+                    // Kill process GROUP to ensure app binary is also terminated
+                    try {
+                        process.kill(-proc.pid, 'SIGKILL');
+                    }
+                    catch {
+                        try {
+                            proc.kill('SIGKILL');
+                        }
+                        catch { /* already exited */ }
+                    }
+                    this.cleanupOrphanProcesses();
+                    this.process = null;
+                    this.status = 'not_running';
+                    this.launchedAt = null;
+                    this.detectedPipePath = null;
+                    this.detectedUnixSocketPath = null;
+                    // Clean up socket file after force kill
+                    this.cleanupSocketFile();
+                    resolve({ message: 'App force stopped' });
+                }
+            }, 5000);
             proc.on('exit', () => {
+                clearTimeout(forceKillTimer);
                 this.process = null;
                 this.status = 'not_running';
                 this.launchedAt = null;
@@ -798,30 +831,6 @@ export class TauriManager {
                 }
                 proc.kill('SIGTERM');
             }
-            // Force kill after 5 seconds
-            setTimeout(() => {
-                if (this.process === proc) {
-                    // Kill process GROUP to ensure app binary is also terminated
-                    try {
-                        process.kill(-proc.pid, 'SIGKILL');
-                    }
-                    catch {
-                        try {
-                            proc.kill('SIGKILL');
-                        }
-                        catch { /* already exited */ }
-                    }
-                    this.cleanupOrphanProcesses();
-                    this.process = null;
-                    this.status = 'not_running';
-                    this.launchedAt = null;
-                    this.detectedPipePath = null;
-                    this.detectedUnixSocketPath = null;
-                    // Clean up socket file after force kill
-                    this.cleanupSocketFile();
-                    resolve({ message: 'App force stopped' });
-                }
-            }, 5000);
         });
     }
     /**
