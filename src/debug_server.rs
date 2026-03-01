@@ -277,8 +277,8 @@ impl DebugServer {
 
     /// Abort the accept loop task if it is running
     fn abort_accept_task(&self) {
-        if let Ok(guard) = self.accept_task.lock() {
-            if let Some(handle) = guard.as_ref() {
+        if let Ok(mut guard) = self.accept_task.lock() {
+            if let Some(handle) = guard.take() {
                 handle.abort();
             }
         }
