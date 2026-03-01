@@ -50,22 +50,41 @@ Claude Code <-> MCP Server (Node.js) <-> IPC Socket <-> Tauri Plugin (Rust) <-> 
 
 ## Tool Reference
 
+### Session Lifecycle
+
 | Tool | Parameters | Description |
 |------|------------|-------------|
-| `get_session_status` | `probe_bridge?: boolean` (default: false) | Returns `{ status, app, bridge? }` — with `probe_bridge: true`, includes per-window health (`initialized`, `bridge_alive`) |
-| `start_session` | `wait_for_ready?: boolean` (default: true), `timeout_secs?: number` (default: 60), `features?: string[]` | Runs `pnpm tauri dev [--features ...]` |
+| `get_session_status` | `probe_bridge?: boolean` | Returns `{ status, app, bridge? }` — with `probe_bridge: true`, includes per-window health (`initialized`, `bridge_alive`) |
+| `start_session` | `wait_for_ready?: boolean`, `timeout_secs?: number`, `features?: string[]`, `devtools?: boolean` | Runs `pnpm tauri dev [--features ...]` |
 | `stop_session` | - | Kills app process tree |
+
+### Window Management
+
+| Tool | Parameters | Description |
+|------|------------|-------------|
 | `list_windows` | - | List all open windows with labels, titles, focus state, and `bridge_initialized` |
 | `focus_window` | `window: string` | Focus a specific window by label |
-| `snapshot` | `window?: string` | Returns accessibility tree with ref numbers |
-| `click` | `ref?: number`, `selector?: string`, `window?: string` | Either ref or selector required |
-| `fill` | `ref?: number`, `selector?: string`, `value: string`, `window?: string` | Either ref or selector required |
-| `press_key` | `key: string`, `window?: string` | Key name (e.g., "Enter", "Tab") |
-| `navigate` | `url: string`, `window?: string` | Sets window.location.href |
-| `screenshot` | `window?: string` | Returns base64 PNG via native OS capture |
-| `evaluate_script` | `script: string`, `window?: string` | Executes JS, returns result |
-| `get_logs` | `filter?: string[]`, `limit?: number`, `clear?: boolean`, `window?: string` | Unified log access |
-| `get_restart_events` | `limit?: number`, `clear?: boolean`, `window?: string` | Get recent app restart/reload events with triggering files |
+
+### Interaction
+
+All interaction tools accept an optional `window` parameter (defaults to focused window).
+
+| Tool | Parameters | Description |
+|------|------------|-------------|
+| `snapshot` | `window?` | Returns accessibility tree with ref numbers for `click`/`fill` |
+| `click` | `ref?: number`, `selector?: string`, `window?` | Either ref or selector required |
+| `fill` | `ref?: number`, `selector?: string`, `value: string`, `window?` | Either ref or selector required |
+| `press_key` | `key: string`, `window?` | Key name (e.g., "Enter", "Tab") |
+| `navigate` | `url: string`, `window?` | Navigate to URL |
+| `screenshot` | `window?` | Returns base64 PNG via native OS capture |
+| `evaluate_script` | `script: string`, `window?` | Execute JS in webview, returns result |
+
+### Observability
+
+| Tool | Parameters | Description |
+|------|------------|-------------|
+| `get_logs` | `filter?: string[]`, `limit?: number`, `clear?: boolean`, `window?` | Unified log access (build, runtime, console, network) with source/level filtering |
+| `get_restart_events` | `limit?: number`, `clear?: boolean`, `window?` | Get recent app restart/reload events with triggering files |
 
 ### Multi-Window Support
 
