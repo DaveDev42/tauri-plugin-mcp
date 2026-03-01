@@ -52,9 +52,9 @@ Claude Code <-> MCP Server (Node.js) <-> IPC Socket <-> Tauri Plugin (Rust) <-> 
 
 | Tool | Parameters | Description |
 |------|------------|-------------|
-| `app_status` | `probe_bridge?: boolean` (default: false) | Returns `{ status, app, bridge? }` — with `probe_bridge: true`, includes per-window health (`initialized`, `bridge_alive`) |
-| `launch_app` | `wait_for_ready?: boolean` (default: true), `timeout_secs?: number` (default: 60), `features?: string[]` | Runs `pnpm tauri dev [--features ...]` |
-| `stop_app` | - | Kills app process tree |
+| `get_session_status` | `probe_bridge?: boolean` (default: false) | Returns `{ status, app, bridge? }` — with `probe_bridge: true`, includes per-window health (`initialized`, `bridge_alive`) |
+| `start_session` | `wait_for_ready?: boolean` (default: true), `timeout_secs?: number` (default: 60), `features?: string[]` | Runs `pnpm tauri dev [--features ...]` |
+| `stop_session` | - | Kills app process tree |
 | `list_windows` | - | List all open windows with labels, titles, focus state, and `bridge_initialized` |
 | `focus_window` | `window: string` | Focus a specific window by label |
 | `snapshot` | `window?: string` | Returns accessibility tree with ref numbers |
@@ -165,11 +165,11 @@ Look for logs:
 ## Testing Workflow
 
 1. Set `TAURI_PROJECT_ROOT` to target app
-2. `launch_app({ timeout_secs: 120 })`
+2. `start_session({ timeout_secs: 120 })`
 3. `snapshot()` to inspect UI
 4. `click`/`fill` to interact
 5. `screenshot()` to verify
-6. `stop_app()` to cleanup
+6. `stop_session()` to cleanup
 
 ## Workspace Structure
 

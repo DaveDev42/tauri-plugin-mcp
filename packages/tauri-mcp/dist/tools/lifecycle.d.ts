@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { TauriManager } from '../managers/tauri.js';
 import { SocketManager } from '../managers/socket.js';
 export declare const toolSchemas: {
-    app_status: {
+    get_session_status: {
         name: string;
         description: string;
         inputSchema: z.ZodObject<{
@@ -13,7 +13,7 @@ export declare const toolSchemas: {
             probe_bridge?: boolean | undefined;
         }>;
     };
-    launch_app: {
+    start_session: {
         name: string;
         description: string;
         inputSchema: z.ZodObject<{
@@ -33,7 +33,7 @@ export declare const toolSchemas: {
             devtools?: boolean | undefined;
         }>;
     };
-    stop_app: {
+    stop_session: {
         name: string;
         description: string;
         inputSchema: z.ZodObject<{}, "strip", z.ZodTypeAny, {}, {}>;
@@ -195,7 +195,7 @@ export declare const toolSchemas: {
 };
 export type ToolName = keyof typeof toolSchemas;
 export declare function createToolHandlers(tauriManager: TauriManager, socketManager: SocketManager): {
-    app_status: (args: {
+    get_session_status: (args: {
         probe_bridge?: boolean;
     }) => Promise<{
         content: {
@@ -203,7 +203,7 @@ export declare function createToolHandlers(tauriManager: TauriManager, socketMan
             text: string;
         }[];
     }>;
-    launch_app: (args: {
+    start_session: (args: {
         wait_for_ready?: boolean;
         timeout_secs?: number;
         features?: string[];
@@ -214,7 +214,7 @@ export declare function createToolHandlers(tauriManager: TauriManager, socketMan
             text: string;
         }[];
     }>;
-    stop_app: () => Promise<{
+    stop_session: () => Promise<{
         content: {
             type: "text";
             text: string;

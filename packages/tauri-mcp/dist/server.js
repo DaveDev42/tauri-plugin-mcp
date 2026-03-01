@@ -6,9 +6,9 @@ import { SocketManager } from './managers/socket.js';
 import { toolSchemas, createToolHandlers } from './tools/lifecycle.js';
 // Default essential tools (can be overridden via ESSENTIAL_TOOLS env var)
 const DEFAULT_ESSENTIAL_TOOLS = [
-    'app_status',
-    'launch_app',
-    'stop_app',
+    'get_session_status',
+    'start_session',
+    'stop_session',
     'snapshot',
     'click',
     'fill',

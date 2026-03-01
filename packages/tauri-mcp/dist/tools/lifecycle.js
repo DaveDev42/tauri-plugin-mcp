@@ -1,16 +1,16 @@
 import { z } from 'zod';
 // Tool schemas (descriptions kept minimal for context efficiency)
 export const toolSchemas = {
-    app_status: {
-        name: 'app_status',
-        description: 'Check app status. Use probe_bridge to verify bridge health per window.',
+    get_session_status: {
+        name: 'get_session_status',
+        description: 'Check session (app) status. Use probe_bridge to verify bridge health per window.',
         inputSchema: z.object({
             probe_bridge: z.boolean().optional().default(false).describe('Actively probe bridge health per window (adds latency)'),
         }),
     },
-    launch_app: {
-        name: 'launch_app',
-        description: 'Launch Tauri app',
+    start_session: {
+        name: 'start_session',
+        description: 'Start session (launch Tauri app)',
         inputSchema: z.object({
             wait_for_ready: z.boolean().optional().describe('Wait for ready'),
             timeout_secs: z.number().optional().describe('Timeout seconds'),
@@ -18,9 +18,9 @@ export const toolSchemas = {
             devtools: z.boolean().optional().describe('Open devtools on launch'),
         }),
     },
-    stop_app: {
-        name: 'stop_app',
-        description: 'Stop app',
+    stop_session: {
+        name: 'stop_session',
+        description: 'Stop session (kill app)',
         inputSchema: z.object({}),
     },
     list_windows: {
@@ -120,7 +120,7 @@ export const toolSchemas = {
 };
 export function createToolHandlers(tauriManager, socketManager) {
     return {
-        app_status: async (args) => {
+        get_session_status: async (args) => {
             const status = tauriManager.getStatus();
             const config = tauriManager.getAppConfig();
             const pid = tauriManager.getProcessPid();
@@ -155,7 +155,7 @@ export function createToolHandlers(tauriManager, socketManager) {
                 ],
             };
         },
-        launch_app: async (args) => {
+        start_session: async (args) => {
             const result = await tauriManager.launch(args);
             // Apply window title prefix after successful launch if env var is set
             if (result.status === 'launched') {
@@ -178,7 +178,7 @@ export function createToolHandlers(tauriManager, socketManager) {
                 ],
             };
         },
-        stop_app: async () => {
+        stop_session: async () => {
             const result = await tauriManager.stop();
             return {
                 content: [

@@ -252,9 +252,9 @@ If the package is installed in a subdirectory (e.g., `apps/desktop`):
 
 | Tool | Parameters | Description |
 |------|------------|-------------|
-| `app_status` | - | Check if app is running |
-| `launch_app` | `wait_for_ready?: boolean`, `timeout_secs?: number`, `features?: string[]` | Launch Tauri app via `pnpm tauri dev` |
-| `stop_app` | - | Stop the app |
+| `get_session_status` | - | Check session (app) status |
+| `start_session` | `wait_for_ready?: boolean`, `timeout_secs?: number`, `features?: string[]` | Start session (launch Tauri app via `pnpm tauri dev`) |
+| `stop_session` | - | Stop session (kill app) |
 | `snapshot` | - | Get accessibility tree (returns ref numbers) |
 | `click` | `ref?: number`, `selector?: string` | Click element by ref or CSS selector |
 | `fill` | `ref?: number`, `selector?: string`, `value: string` | Fill input field |
@@ -270,7 +270,7 @@ If the package is installed in a subdirectory (e.g., `apps/desktop`):
 To launch with Cargo features:
 
 ```
-launch_app({ features: ["my_feature"] })
+start_session({ features: ["my_feature"] })
 ```
 
 This runs: `pnpm tauri dev --features my_feature`
@@ -280,12 +280,12 @@ This runs: `pnpm tauri dev --features my_feature`
 Typical testing workflow:
 
 ```
-1. launch_app({ timeout_secs: 120 })
+1. start_session({ timeout_secs: 120 })
 2. snapshot()           # Get element refs
 3. click({ ref: 5 })    # Click button by ref
 4. fill({ selector: "input[name='email']", value: "test@example.com" })
 5. screenshot()         # Verify result
-6. stop_app()
+6. stop_session()
 ```
 
 ## How It Works
@@ -314,7 +314,7 @@ The JS bridge isn't running. Check:
 
 ### Socket connection failed
 
-- Ensure the app is running (`launch_app` first)
+- Ensure the app is running (`start_session` first)
 - On Windows, check pipe path in logs: `[tauri-plugin-mcp] full_path: \\.\pipe\tauri-mcp-XXXXX`
 - On Unix, check if `.tauri-mcp.sock` exists in project root
 

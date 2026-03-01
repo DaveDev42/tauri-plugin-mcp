@@ -139,7 +139,7 @@ export class SocketManager {
             client.on('error', (err) => {
                 clearTimeout(timeout);
                 if (err.code === 'ENOENT') {
-                    reject(new Error('App not running. Use launch_app first.'));
+                    reject(new Error('App not running. Use start_session first.'));
                 }
                 else if (err.code === 'ECONNREFUSED') {
                     reject(new Error('App is starting up. Please wait and try again.'));

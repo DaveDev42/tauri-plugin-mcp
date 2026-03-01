@@ -185,7 +185,7 @@ export class SocketManager {
       client.on('error', (err) => {
         clearTimeout(timeout);
         if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-          reject(new Error('App not running. Use launch_app first.'));
+          reject(new Error('App not running. Use start_session first.'));
         } else if ((err as NodeJS.ErrnoException).code === 'ECONNREFUSED') {
           reject(new Error('App is starting up. Please wait and try again.'));
         } else {
