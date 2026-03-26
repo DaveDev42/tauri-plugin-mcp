@@ -27,7 +27,7 @@
   "types": "./packages/tauri-plugin-mcp-api/dist/index.d.ts",
   "scripts": {
     "build": "pnpm -r build",
-    "prepare": "git config core.hooksPath .githooks 2>/dev/null; pnpm build",
+    "prepare": "pnpm build",
     "typecheck": "pnpm -r typecheck"
   },
   "dependencies": {
