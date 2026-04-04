@@ -1,0 +1,9 @@
+{
+  "tauri-mcp": {
+    "command": "npx",
+    "args": ["tauri-mcp"],
+    "env": {
+      "TAURI_PROJECT_ROOT": "."
+    }
+  }
+}

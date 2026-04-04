@@ -183,12 +183,20 @@ Look for logs:
 
 ## Testing Workflow
 
-1. Set `TAURI_PROJECT_ROOT` to target app
-2. `start_session({ timeout_secs: 120 })`
-3. `snapshot()` to inspect UI
-4. `click`/`fill` to interact
-5. `screenshot()` to verify
-6. `stop_session()` to cleanup
+1. `start_session({ wait_for_ready: true })` -- launch the app
+2. `snapshot()` -- inspect UI, get ref numbers
+3. `click`/`fill`/`press_key` -- interact using refs
+4. `snapshot()` or `screenshot()` -- verify result
+5. `stop_session()` -- always clean up (even on failure)
+
+### Key Constraints
+
+- Always `snapshot` before `click`/`fill` to get fresh ref numbers
+- Always `stop_session` when done, even if tests fail
+- Prefer `snapshot` over `screenshot` for verification (90%+ token savings)
+- Use `screenshot` only for visual evidence or when text-based verification is insufficient
+- Use `get_logs` after `start_session` to check for startup errors
+- If using Cargo features for MCP (e.g., `features: ["dev-tools"]`), pass them to `start_session`
 
 ## Workspace Structure
 

@@ -4,6 +4,25 @@ Cross-platform Tauri test automation plugin via [MCP (Model Context Protocol)](h
 
 Enables AI assistants like Claude to interact with your Tauri desktop app for testing and automation.
 
+## Claude Code Plugin
+
+This repo doubles as a **Claude Code plugin**. Install it to get the MCP server, QA agent, skills, and validation hooks all at once:
+
+```
+/plugin install github:DaveDev42/tauri-plugin-mcp
+```
+
+**What's included:**
+
+| Component | Description |
+|-----------|-------------|
+| MCP Server | Auto-configured `tauri-mcp` (14 tools for app lifecycle, UI interaction, screenshots, logging) |
+| `tauri-qa` skill | QA orchestration -- prepares test scenarios, delegates to QA agent, validates results |
+| `tauri-setup` skill | Step-by-step guide for installing tauri-plugin-mcp in a Tauri v2 project |
+| `tauri-debug` skill | Diagnostic decision trees for common MCP session issues |
+| `qa-tester` agent | Testing agent (haiku) that executes test scenarios using MCP tools |
+| QA validation hook | Verifies QA PASS results include actual tool call evidence |
+
 ## Features
 
 - **Cross-platform**: Windows (Named Pipes) + macOS/Linux (Unix Sockets)
