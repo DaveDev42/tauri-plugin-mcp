@@ -1,6 +1,8 @@
 {
-  "tauri-mcp": {
-    "command": "npx",
-    "args": ["tauri-mcp"]
+  "mcpServers": {
+    "tauri-mcp": {
+      "command": "npx",
+      "args": ["tauri-mcp"]
+    }
   }
 }
