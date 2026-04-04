@@ -8,7 +8,11 @@ Enables AI assistants like Claude to interact with your Tauri desktop app for te
 
 This repo doubles as a **Claude Code plugin**. Install it to get the MCP server, QA agent, skills, and validation hooks all at once:
 
-```
+```bash
+# Terminal
+claude plugin install github:DaveDev42/tauri-plugin-mcp
+
+# Or inside a Claude Code session
 /plugin install github:DaveDev42/tauri-plugin-mcp
 ```
 
