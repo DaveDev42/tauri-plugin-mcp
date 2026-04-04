@@ -1,0 +1,14 @@
+{
+  "name": "tauri-mcp",
+  "owner": {
+    "name": "DaveDev42"
+  },
+  "plugins": [
+    {
+      "name": "tauri-mcp",
+      "source": "./",
+      "description": "Tauri desktop app test automation — QA testing, UI automation, and accessibility tree inspection",
+      "version": "0.1.0"
+    }
+  ]
+}

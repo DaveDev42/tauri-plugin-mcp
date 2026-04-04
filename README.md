@@ -9,12 +9,21 @@ Enables AI assistants like Claude to interact with your Tauri desktop app for te
 This repo doubles as a **Claude Code plugin**. Install it to get the MCP server, QA agent, skills, and validation hooks all at once:
 
 ```bash
-# Terminal
-claude plugin install github:DaveDev42/tauri-plugin-mcp
+# 1. Add the marketplace source
+claude plugin marketplace add DaveDev42/tauri-plugin-mcp
 
-# Or inside a Claude Code session
-/plugin install github:DaveDev42/tauri-plugin-mcp
+# 2. Install the plugin
+claude plugin install tauri-mcp --scope project
 ```
+
+Or inside a Claude Code session:
+
+```
+/plugin marketplace add DaveDev42/tauri-plugin-mcp
+/plugin install tauri-mcp --scope project
+```
+
+This automatically configures the MCP server, QA agent, skills, and validation hooks. No manual `.mcp.json` setup needed.
 
 **What's included:**
 
@@ -236,6 +245,8 @@ Now `pnpm dev` enables MCP, while `tauri build` (without the feature) produces a
 > **Note:** The frontend bridge guard (`import.meta.env.DEV`) from the [basic setup](#3-initialize-the-bridge-maintsx) still applies — it prevents the bridge from initializing even if the plugin were somehow present at runtime.
 
 ## MCP Server Configuration
+
+> **Note:** If you installed the [Claude Code Plugin](#claude-code-plugin), the MCP server is already configured automatically. This section is for manual setup without the plugin.
 
 Add to `.mcp.json` in your project root:
 
