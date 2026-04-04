@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "diff -q \"${CLAUDE_PLUGIN_ROOT}/packages/tauri-mcp/package.json\" \"${CLAUDE_PLUGIN_DATA}/package.json\" >/dev/null 2>&1 || (mkdir -p \"${CLAUDE_PLUGIN_DATA}\" && cp \"${CLAUDE_PLUGIN_ROOT}/packages/tauri-mcp/package.json\" \"${CLAUDE_PLUGIN_DATA}/\" && cd \"${CLAUDE_PLUGIN_DATA}\" && npm install --omit=dev --ignore-scripts --no-audit --no-fund 2>/dev/null) || rm -f \"${CLAUDE_PLUGIN_DATA}/package.json\"",
+            "command": "diff -q \"${CLAUDE_PLUGIN_ROOT}/packages/tauri-mcp/package.json\" \"${CLAUDE_PLUGIN_DATA}/package.json\" >/dev/null 2>&1 || (mkdir -p \"${CLAUDE_PLUGIN_DATA}\" && cp \"${CLAUDE_PLUGIN_ROOT}/packages/tauri-mcp/package.json\" \"${CLAUDE_PLUGIN_DATA}/\" && cd \"${CLAUDE_PLUGIN_DATA}\" && npm install --omit=dev --ignore-scripts --no-audit --no-fund 2>/dev/null) || rm -f \"${CLAUDE_PLUGIN_DATA}/package.json\"; ln -sfn \"${CLAUDE_PLUGIN_DATA}/node_modules\" \"${CLAUDE_PLUGIN_ROOT}/packages/tauri-mcp/node_modules\" 2>/dev/null",
             "timeout": 30
           }
         ]
