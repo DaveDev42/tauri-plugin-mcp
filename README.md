@@ -268,7 +268,7 @@ Add to `.mcp.json` in your project root:
 
 ### Monorepo Configuration
 
-If the package is installed in a subdirectory (e.g., `apps/desktop`):
+If the Tauri app is in a subdirectory (e.g., `apps/desktop`), set `TAURI_PROJECT_ROOT` in your project's `.mcp.json`:
 
 ```json
 {
@@ -284,6 +284,33 @@ If the package is installed in a subdirectory (e.g., `apps/desktop`):
   }
 }
 ```
+
+> **Note:** This project-level `.mcp.json` overrides the plugin's MCP config. If you're using the Claude Code Plugin, add this to your project to point to the correct Tauri app directory.
+
+### Multiple Tauri Apps
+
+For monorepos with multiple Tauri apps, run a separate MCP server instance per app. Each gets its own namespace:
+
+```json
+{
+  "mcpServers": {
+    "tauri-desktop": {
+      "command": "npx",
+      "args": ["tauri-mcp"],
+      "env": { "TAURI_PROJECT_ROOT": "./apps/desktop" },
+      "cwd": "./apps/desktop"
+    },
+    "tauri-kiosk": {
+      "command": "npx",
+      "args": ["tauri-mcp"],
+      "env": { "TAURI_PROJECT_ROOT": "./apps/kiosk" },
+      "cwd": "./apps/kiosk"
+    }
+  }
+}
+```
+
+Tools are namespaced by server name: `mcp__tauri-desktop__snapshot`, `mcp__tauri-kiosk__snapshot`, etc.
 
 ## Available Tools
 
