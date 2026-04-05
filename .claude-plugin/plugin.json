@@ -15,5 +15,11 @@
     "testing",
     "e2e",
     "accessibility"
-  ]
+  ],
+  "userConfig": {
+    "tauri_app_dir": {
+      "description": "Path to Tauri app directory relative to project root (e.g., '.', 'apps/desktop', 'packages/app')",
+      "sensitive": false
+    }
+  }
 }

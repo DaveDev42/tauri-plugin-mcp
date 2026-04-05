@@ -2,7 +2,10 @@
   "mcpServers": {
     "tauri-mcp": {
       "command": "node",
-      "args": ["${CLAUDE_PLUGIN_ROOT}/packages/tauri-mcp/dist/index.js"]
+      "args": ["${CLAUDE_PLUGIN_ROOT}/packages/tauri-mcp/dist/index.js"],
+      "env": {
+        "TAURI_APP_DIR": "${user_config.tauri_app_dir}"
+      }
     }
   }
 }

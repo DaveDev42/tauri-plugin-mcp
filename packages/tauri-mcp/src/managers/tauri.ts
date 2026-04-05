@@ -232,53 +232,22 @@ export class TauriManager {
   }
 
   private detectTauriApp(): TauriAppConfig | null {
-    // Search for src-tauri/Cargo.toml at various depths
-    const searchPaths = [
-      path.join(this.projectRoot, 'src-tauri', 'Cargo.toml'),
-      path.join(this.projectRoot, '..', 'src-tauri', 'Cargo.toml'),
-      ...this.findCargoTomlRecursive(this.projectRoot, 3),
-    ];
+    const cargoPath = path.join(this.projectRoot, 'src-tauri', 'Cargo.toml');
 
-    for (const cargoPath of searchPaths) {
-      if (fs.existsSync(cargoPath)) {
-        try {
-          const config = this.parseCargoToml(cargoPath);
-          if (config) {
-            console.error(`[tauri-mcp] Detected Tauri app: ${config.packageName} at ${config.appDir}`);
-            return config;
-          }
-        } catch (e) {
-          // Continue searching
+    if (fs.existsSync(cargoPath)) {
+      try {
+        const config = this.parseCargoToml(cargoPath);
+        if (config) {
+          console.error(`[tauri-mcp] Detected Tauri app: ${config.packageName} at ${config.appDir}`);
+          return config;
         }
+      } catch (e) {
+        // Parse error
       }
     }
 
+    console.error(`[tauri-mcp] No Tauri app found at ${this.projectRoot}. Set TAURI_APP_DIR to the directory containing src-tauri/.`);
     return null;
-  }
-
-  private findCargoTomlRecursive(dir: string, depth: number): string[] {
-    if (depth <= 0) return [];
-
-    const results: string[] = [];
-    try {
-      const entries = fs.readdirSync(dir, { withFileTypes: true });
-      for (const entry of entries) {
-        if (entry.isDirectory() && !entry.name.startsWith('.') && entry.name !== 'node_modules' && entry.name !== 'target') {
-          const subDir = path.join(dir, entry.name);
-          if (entry.name === 'src-tauri') {
-            const cargoPath = path.join(subDir, 'Cargo.toml');
-            if (fs.existsSync(cargoPath)) {
-              results.push(cargoPath);
-            }
-          } else {
-            results.push(...this.findCargoTomlRecursive(subDir, depth - 1));
-          }
-        }
-      }
-    } catch (e) {
-      // Permission denied or other errors
-    }
-    return results;
   }
 
   private parseCargoToml(cargoPath: string): TauriAppConfig | null {

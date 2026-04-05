@@ -84,7 +84,6 @@ export declare class TauriManager {
      */
     private injectPortToCommand;
     private detectTauriApp;
-    private findCargoTomlRecursive;
     private parseCargoToml;
     /**
      * Get the socket path - uses appDir where the Tauri app actually runs

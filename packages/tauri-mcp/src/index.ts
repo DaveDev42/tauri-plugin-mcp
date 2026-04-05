@@ -12,8 +12,8 @@ if (!process.env.TAURI_MCP_WINDOW_PREFIX) {
   }
 }
 
-// TAURI_PROJECT_ROOT environment variable or current working directory
-const projectRoot = process.env.TAURI_PROJECT_ROOT || process.cwd();
+// TAURI_APP_DIR (plugin config) > TAURI_PROJECT_ROOT (legacy) > cwd
+const projectRoot = process.env.TAURI_APP_DIR || process.env.TAURI_PROJECT_ROOT || process.cwd();
 const server = new McpServer(projectRoot);
 
 let isShuttingDown = false;

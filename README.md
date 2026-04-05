@@ -23,6 +23,9 @@ Or inside a Claude Code session:
 /plugin install tauri-mcp --scope project
 ```
 
+During installation, you'll be prompted for:
+- **Tauri app directory**: Path relative to project root (e.g., `.` for single-app repos, `apps/desktop` for monorepos)
+
 This automatically configures the MCP server, QA agent, skills, and validation hooks. No manual `.mcp.json` setup needed.
 
 **What's included:**
@@ -246,7 +249,7 @@ Now `pnpm dev` enables MCP, while `tauri build` (without the feature) produces a
 
 ## MCP Server Configuration
 
-> **Note:** If you installed the [Claude Code Plugin](#claude-code-plugin), the MCP server is already configured automatically. This section is for manual setup without the plugin.
+> **Note:** If you installed the [Claude Code Plugin](#claude-code-plugin), the MCP server is already configured automatically. The plugin prompts for the Tauri app directory during installation. This section is for manual setup without the plugin.
 
 Add to `.mcp.json` in your project root:
 
@@ -257,7 +260,7 @@ Add to `.mcp.json` in your project root:
       "command": "npx",
       "args": ["tauri-mcp"],
       "env": {
-        "TAURI_PROJECT_ROOT": "."
+        "TAURI_APP_DIR": "."
       }
     }
   }
@@ -268,7 +271,7 @@ Add to `.mcp.json` in your project root:
 
 ### Monorepo Configuration
 
-If the Tauri app is in a subdirectory (e.g., `apps/desktop`), set `TAURI_PROJECT_ROOT` in your project's `.mcp.json`:
+If the Tauri app is in a subdirectory (e.g., `apps/desktop`), set `TAURI_APP_DIR`:
 
 ```json
 {
@@ -277,19 +280,16 @@ If the Tauri app is in a subdirectory (e.g., `apps/desktop`), set `TAURI_PROJECT
       "command": "npx",
       "args": ["tauri-mcp"],
       "env": {
-        "TAURI_PROJECT_ROOT": "./apps/desktop"
-      },
-      "cwd": "./apps/desktop"
+        "TAURI_APP_DIR": "./apps/desktop"
+      }
     }
   }
 }
 ```
 
-> **Note:** This project-level `.mcp.json` overrides the plugin's MCP config. If you're using the Claude Code Plugin, add this to your project to point to the correct Tauri app directory.
-
 ### Multiple Tauri Apps
 
-For monorepos with multiple Tauri apps, run a separate MCP server instance per app. Each gets its own namespace:
+For monorepos with multiple Tauri apps, run a separate MCP server instance per app:
 
 ```json
 {
@@ -297,14 +297,12 @@ For monorepos with multiple Tauri apps, run a separate MCP server instance per a
     "tauri-desktop": {
       "command": "npx",
       "args": ["tauri-mcp"],
-      "env": { "TAURI_PROJECT_ROOT": "./apps/desktop" },
-      "cwd": "./apps/desktop"
+      "env": { "TAURI_APP_DIR": "./apps/desktop" }
     },
     "tauri-kiosk": {
       "command": "npx",
       "args": ["tauri-mcp"],
-      "env": { "TAURI_PROJECT_ROOT": "./apps/kiosk" },
-      "cwd": "./apps/kiosk"
+      "env": { "TAURI_APP_DIR": "./apps/kiosk" }
     }
   }
 }
