@@ -138,7 +138,7 @@ MCP automatically assigns a random available port (10000-60000) to avoid conflic
 
 | Variable | Purpose | Example |
 |----------|---------|---------|
-| `TAURI_PROJECT_ROOT` | Target Tauri app directory | `"."` or `/path/to/app` |
+| `TAURI_APP_DIR` | Target Tauri app directory (set via plugin config or env) | `"."` or `./apps/desktop` |
 
 ## Platform-Specific Notes
 
