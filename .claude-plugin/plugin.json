@@ -18,7 +18,9 @@
   ],
   "userConfig": {
     "tauri_app_dir": {
+      "title": "Tauri app directory",
       "description": "Path to Tauri app directory relative to project root (e.g., '.', 'apps/desktop', 'packages/app')",
+      "type": "directory",
       "sensitive": false
     }
   }
