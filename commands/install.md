@@ -1,7 +1,7 @@
 ---
 description: Auto-install tauri-plugin-mcp into a Tauri v2 app (edits Cargo.toml, lib.rs, main entry, capabilities, package.json)
 disable-model-invocation: true
-argument-hint: "[tauri-app-dir]"
+argument-hint: "[tauri-app-dir] [--global] [--prod-safe]"
 allowed-tools: Read Edit Write Bash Glob Grep
 ---
 
@@ -12,18 +12,31 @@ the necessary files. The goal: after this command finishes and the user restarts
 Code, they can call tauri-mcp tools (start_session, snapshot, click, ...) with no further
 manual setup.
 
-## Argument
+## Arguments
 
-`$ARGUMENTS` is the Tauri app directory relative to the current working directory.
-- If empty, default to `.` (single-app repo).
-- If given (e.g. `apps/desktop`), treat that as `TAURI_APP_DIR`.
-- The Tauri app directory is the one that **contains `src-tauri/`**. Verify this.
+Parse `$ARGUMENTS` as a whitespace-separated list:
+- **First positional** — Tauri app directory relative to the current working
+  directory. If absent, default to `.` (single-app repo). The Tauri app directory
+  is the one that **contains `src-tauri/`**. Verify this.
+- **`--global` flag** — if present, write the plugin userConfig to
+  `~/.claude/settings.json`. Otherwise (default), write to
+  `<project>/.claude/settings.json`.
+- **`--prod-safe` flag** — if present, use the feature-gated variant (see the
+  "Production-safe variant" section below) so MCP never compiles into release
+  builds. Otherwise (default), use the simple setup in the "High-level plan"
+  below.
+
+Do not ask the user to pick these — if they didn't pass them, use the defaults.
+The goal is one-shot install: user runs the command once, restarts Claude Code,
+done.
 
 ## High-level plan
 
-Follow these steps in order. **After detecting the current state, print a plan with a
-diff preview of every file you intend to change, then ASK THE USER to confirm before
-making any edits.** Do not edit until the user says "yes" / "ok" / "go".
+Follow these steps in order. **Proceed without asking for confirmation** — this is
+a one-shot installer. Print what you're doing as you go (the files you're editing
+and why), but do not block on user approval. The only exception: if detection is
+ambiguous (multiple candidate Tauri app dirs, unknown frontend entry, etc.),
+ask once to disambiguate, then continue all the way through.
 
 1. **Detect project layout**
    - Find the Tauri app dir (has `src-tauri/`). Use `$ARGUMENTS` if provided.
@@ -88,31 +101,57 @@ making any edits.** Do not edit until the user says "yes" / "ok" / "go".
    - yarn: `yarn install`
    - bun:  `bun install`
 
-9. **Tell the user how to finish**:
-   - If the plugin's `tauri_app_dir` userConfig isn't set yet, instruct them to run
-     `/plugin` → select `tauri-mcp` → set `Tauri app directory` to the same value
-     that was passed as `$ARGUMENTS` (or `.`).
-   - **Restart Claude Code** so the MCP server picks up the new config and registers
-     the `tauri-mcp` tools.
-   - After restart, verify with `/mcp` — `tauri-mcp` should appear as connected.
+9. **Write the plugin's `tauri_app_dir` userConfig directly** — do not send the
+   user to the `/plugin` UI, and do not ask where to save it. Decide from args:
+   - `--global` flag present → `~/.claude/settings.json`
+   - otherwise → `<project>/.claude/settings.json`
+
+   Merge the following under the chosen file, preserving every other key:
+   ```json
+   {
+     "pluginConfigs": {
+       "tauri-mcp@tauri-mcp": {
+         "options": {
+           "tauri_app_dir": "<value>"
+         }
+       }
+     }
+   }
+   ```
+   - `<value>` is the first positional from `$ARGUMENTS` (or `.` if absent).
+   - The plugin identifier is `tauri-mcp@tauri-mcp` (plugin name @ marketplace
+     name; both are `tauri-mcp` per this repo's `.claude-plugin/marketplace.json`).
+   - **Read the file first, merge, write back.** Never clobber existing keys.
+   - If the file doesn't exist, create it with just the `pluginConfigs` key.
+   - If `pluginConfigs["tauri-mcp@tauri-mcp"].options.tauri_app_dir` is already
+     set to the same value, skip. If it's set to a different value, overwrite
+     (the user just re-ran install with a new value — honor it) and log that
+     you did.
+   - For project-local, ensure `.claude/` exists (`mkdir -p`).
+
+10. **Tell the user to restart Claude Code.** That's the only remaining manual
+    step. After restart, the MCP server picks up the config and `/mcp` shows
+    `tauri-mcp` as connected.
 
 ## Safety rules
 
-- **Always show a full plan + per-file diff preview before any write.**
-- **Wait for explicit user confirmation before any Edit / Write.**
 - Read each file before editing. Never assume contents.
 - Make idempotent edits: if the change is already applied, skip without error.
-- If you can't find the frontend entry or the capability file deterministically,
-  ask the user which file to edit rather than guessing.
+- Print what you're editing as you go — short one-liners are fine. The user
+  should see a trail, just without approval prompts.
+- If detection is ambiguous (multiple candidate Tauri app dirs, unknown frontend
+  entry, multiple capability files with no clear default), ask *once* to
+  disambiguate, then continue through to the end.
 - Don't touch `node_modules`, `target/`, `dist/`, or build output.
-- Don't modify files outside the Tauri app dir / its frontend root without telling
-  the user why.
+- Don't modify files outside the Tauri app dir / its frontend root and the
+  chosen `.claude/settings.json`.
 
-## Production-safe variant (optional)
+## Production-safe variant (opt-in via `--prod-safe`)
 
-**Ask the user upfront** whether they want MCP compiled into release builds or only
-enabled during development. If they want dev-only (recommended for shipping apps),
-use this feature-gated variant instead of the basic setup above:
+By default, use the simple setup above — it's one-shot, easy to revert, and fine
+for internal / single-developer apps. **Only switch to this variant when the user
+passes `--prod-safe`** (e.g. `/tauri-mcp:install apps/desktop --prod-safe`). It
+feature-gates the plugin behind `dev-tools` so release builds never compile MCP in:
 
 **Cargo.toml:**
 ```toml
@@ -191,6 +230,6 @@ bridge from initializing even if the plugin were somehow compiled in.
 ## Output format
 
 After completing the installation, print a short summary:
-- ✅ Files edited (with paths)
+- ✅ Files edited (with paths), including the settings file where `tauri_app_dir` was written
 - ✅ Dependencies installed
-- ⏭️ Next steps for the user (set userConfig, restart Claude Code, run `/mcp`)
+- ⏭️ Next step: restart Claude Code, then verify with `/mcp`
