@@ -1,7 +1,7 @@
 {
   "name": "tauri-mcp",
   "description": "Tauri desktop app test automation via MCP. Launch, inspect, interact with, and test Tauri v2 apps using accessibility tree snapshots and DOM manipulation.",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "author": {
     "name": "DaveDev42"
   },
