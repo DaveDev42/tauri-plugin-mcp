@@ -8,7 +8,7 @@
       "name": "tauri-mcp",
       "source": "./",
       "description": "Tauri desktop app test automation — QA testing, UI automation, and accessibility tree inspection",
-      "version": "0.3.5"
+      "version": "0.3.6"
     }
   ]
 }
