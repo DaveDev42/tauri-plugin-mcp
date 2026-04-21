@@ -1,11 +1,13 @@
-name: Check dist/ is up to date
+name: CI
 
 on:
   pull_request:
     branches: [main]
+  push:
+    branches: [main]
 
 jobs:
-  check-dist:
+  check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -14,14 +16,23 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: 20
           cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
 
       - run: pnpm install --frozen-lockfile
 
-      - run: pnpm build
+      - name: Check versions are in sync across all 6 files
+        run: pnpm check:versions
 
-      - name: Check dist/ is in sync
+      - name: Typecheck (TypeScript)
+        run: pnpm typecheck
+
+      - name: Build all packages
+        run: pnpm build
+
+      - name: Check dist/ is in sync with sources
         run: |
           if ! git diff --exit-code packages/*/dist/; then
             echo "::error::dist/ is out of date. Run 'pnpm build' and commit the changes."
@@ -35,3 +46,6 @@ jobs:
             echo "Run 'pnpm build && git add packages/*/dist/' and commit."
             exit 1
           fi
+
+      - name: Cargo check (Rust)
+        run: cargo check --quiet

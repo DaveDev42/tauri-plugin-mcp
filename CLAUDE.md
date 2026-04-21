@@ -44,19 +44,43 @@ is bumped — git commits alone are invisible to installed users. Version lives 
 - `packages/tauri-mcp/package.json`
 - `packages/tauri-plugin-mcp-api/package.json`
 
-Use the bump script — it updates all six, rebuilds, commits, tags `vX.Y.Z`, and
-pushes both `main` and the tag:
+### Release flow
 
 ```bash
-pnpm bump patch          # 0.3.1 -> 0.3.2
-pnpm bump minor          # 0.3.1 -> 0.4.0
-pnpm bump major          # 0.3.1 -> 1.0.0
-pnpm bump 0.5.0-rc.1     # explicit version
+pnpm release patch           # 0.3.2 -> 0.3.3
+pnpm release minor           # 0.3.2 -> 0.4.0
+pnpm release major           # 0.3.2 -> 1.0.0
+pnpm release 0.5.0-rc.1      # explicit version
+pnpm release --dry-run 0.4.0 # print what would happen, change nothing
 ```
 
-The script refuses to run on a dirty working tree so every release is a single,
-atomic commit. After it finishes, users can `/plugin update tauri-mcp` to receive
-the new version.
+(`pnpm bump` is a backwards-compatible alias for `pnpm release`.)
+
+The script enforces preflight checks before doing anything: must be on `main`,
+clean working tree, local `main` equal to `origin/main`, tag not already taken,
+new version differs from current, version is valid semver. Then it bumps all
+six files, rebuilds (`pnpm build` + `cargo check`), self-checks with
+`pnpm check:versions`, commits as `chore: release vX.Y.Z`, tags, and pushes
+both `main` and the tag.
+
+### CI guardrails
+
+Two GitHub workflows back the release process:
+
+- **`.github/workflows/ci.yml`** — runs on every PR and every push to `main`.
+  Verifies version lockstep (`pnpm check:versions`), typechecks, rebuilds,
+  ensures `packages/*/dist/` on disk matches committed artifacts, runs
+  `cargo check`. A local commit that skips `pnpm build` or that edits only one
+  of the six version files will fail here.
+
+- **`.github/workflows/release.yml`** — runs when a `v*` tag is pushed.
+  Verifies that the tag name matches the version baked into the files, builds,
+  re-checks dist/, and creates a GitHub Release with auto-generated notes.
+  So `git tag v1.2.3 && git push --tags` on a repo whose files say `1.2.2`
+  will fail the workflow rather than publishing a mismatched release.
+
+After the release workflow succeeds, installed users can pick up the new
+version with `/plugin update tauri-mcp`.
 
 ## Architecture
 

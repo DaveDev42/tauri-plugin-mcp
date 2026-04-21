@@ -1,0 +1,59 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Verify tag matches file versions
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          FILE_VERSION=$(pnpm --silent check:versions | sed -nE 's/^version: ([^ ]+) .*/\1/p')
+          if [ "$TAG_VERSION" != "$FILE_VERSION" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match file version $FILE_VERSION"
+            exit 1
+          fi
+          echo "tag and files agree on $FILE_VERSION"
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Build and verify dist/ matches committed artifacts
+        run: |
+          pnpm build
+          if ! git diff --exit-code packages/*/dist/; then
+            echo "::error::dist/ drift detected for this tag — rebuild locally and re-tag"
+            exit 1
+          fi
+
+      - name: Cargo check
+        run: cargo check --quiet
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes
