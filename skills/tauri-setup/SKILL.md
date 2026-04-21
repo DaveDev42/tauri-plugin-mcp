@@ -23,6 +23,10 @@ metadata:
 
 # Installing tauri-plugin-mcp
 
+**Prefer the automated installer:** run `/tauri-mcp:install [tauri-app-dir]` in Claude
+Code. It performs all steps below with a diff preview + user confirmation. The rest of
+this skill is the manual reference used by that command.
+
 ## Quick Checklist
 
 1. Add Rust plugin to `src-tauri/Cargo.toml`
@@ -30,7 +34,7 @@ metadata:
 3. Register plugin in `src-tauri/src/lib.rs`
 4. Add `mcp:default` permission
 5. Initialize bridge in frontend entry point
-6. Create `.mcp.json` for Claude Code
+6. (If using the plugin manifest) MCP server is configured automatically via plugin `userConfig`. Otherwise, create `.mcp.json`.
 
 ## Step 1: Rust Plugin
 

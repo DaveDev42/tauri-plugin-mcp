@@ -6,35 +6,46 @@ Enables AI assistants like Claude to interact with your Tauri desktop app for te
 
 ## Claude Code Plugin
 
-This repo doubles as a **Claude Code plugin**. Install it to get the MCP server, QA agent, skills, and validation hooks all at once:
+This repo doubles as a **Claude Code plugin**. Three steps to a fully working setup:
 
-```bash
-# 1. Add the marketplace source
-claude plugin marketplace add DaveDev42/tauri-plugin-mcp
-
-# 2. Install the plugin
-claude plugin install tauri-mcp --scope project
-```
-
-Or inside a Claude Code session:
+**1. Add the marketplace and install the plugin**
 
 ```
 /plugin marketplace add DaveDev42/tauri-plugin-mcp
-/plugin install tauri-mcp --scope project
+/plugin install tauri-mcp
 ```
 
-During installation, you'll be prompted for:
-- **Tauri app directory**: Path relative to project root (e.g., `.` for single-app repos, `apps/desktop` for monorepos)
+During installation you'll be prompted for:
+- **Tauri app directory**: path relative to project root (e.g. `.` for single-app repos, `apps/desktop` for monorepos).
 
-This automatically configures the MCP server, QA agent, skills, and validation hooks. No manual `.mcp.json` setup needed.
+**2. Run the installer command**
+
+```
+/tauri-mcp:install
+```
+
+This auto-edits your Tauri project: `Cargo.toml`, `src-tauri/src/lib.rs`, capabilities, `package.json`, the frontend entry (`main.tsx`/`main.ts`), and `.gitignore`. Every write is previewed as a diff and requires your confirmation first.
+
+**3. Restart Claude Code**
+
+The `tauri-mcp` MCP server registers on restart. Verify with `/mcp` — it should show `tauri-mcp` as connected. You can now call `start_session`, `snapshot`, `click`, etc.
+
+### Why restart?
+
+MCP servers are registered at Claude Code startup. Installing the plugin or changing `tauri_app_dir` both require a restart to take effect.
+
+### What the plugin ships
+
+The MCP server ships as a self-contained single-file bundle (`packages/tauri-mcp/dist/index.js`) with all dependencies inlined — no `node_modules` needed on the target machine, so installation works identically on macOS, Linux, and Windows.
 
 **What's included:**
 
 | Component | Description |
 |-----------|-------------|
-| MCP Server | Auto-configured `tauri-mcp` (14 tools for app lifecycle, UI interaction, screenshots, logging) |
-| `tauri-qa` skill | QA orchestration -- prepares test scenarios, delegates to QA agent, validates results |
-| `tauri-setup` skill | Step-by-step guide for installing tauri-plugin-mcp in a Tauri v2 project |
+| MCP Server | Self-contained `tauri-mcp` bundle (14 tools for app lifecycle, UI interaction, screenshots, logging) |
+| `/tauri-mcp:install` command | One-shot installer that edits your Tauri project to wire up the plugin |
+| `tauri-qa` skill | QA orchestration — prepares test scenarios, delegates to QA agent, validates results |
+| `tauri-setup` skill | Reference for manual installation steps (the installer command uses this recipe) |
 | `tauri-debug` skill | Diagnostic decision trees for common MCP session issues |
 | `qa-tester` agent | Testing agent (haiku) that executes test scenarios using MCP tools |
 | QA validation hook | Verifies QA PASS results include actual tool call evidence |

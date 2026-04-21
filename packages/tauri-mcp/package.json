@@ -1,19 +1,18 @@
 {
   "name": "tauri-mcp",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "description": "MCP server for Tauri desktop app automation",
   "type": "module",
   "bin": {
     "tauri-mcp": "./dist/index.js"
   },
   "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
   "files": [
     "dist"
   ],
   "scripts": {
-    "build": "tsc",
-    "dev": "tsc --watch",
+    "build": "tsup",
+    "dev": "tsup --watch",
     "typecheck": "tsc --noEmit",
     "prepare": "npm run build",
     "prepublishOnly": "npm run build"
@@ -32,13 +31,12 @@
     "url": "https://github.com/DaveDev42/tauri-plugin-mcp.git",
     "directory": "packages/tauri-mcp"
   },
-  "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.25.2",
-    "zod": "^3.24.1"
-  },
   "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.25.2",
     "@types/node": "^22.19.1",
-    "typescript": "^5.9.3"
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3",
+    "zod": "^3.24.1"
   },
   "engines": {
     "node": ">=18"

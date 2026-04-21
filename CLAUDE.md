@@ -14,13 +14,22 @@ cargo build                    # Rust plugin
 pnpm build                     # TypeScript packages (MCP server + API)
 
 # Build specific packages
-pnpm --filter tauri-mcp build
-pnpm --filter tauri-plugin-mcp-api build
+pnpm --filter tauri-mcp build              # tsup, single-file ESM bundle
+pnpm --filter tauri-plugin-mcp-api build   # tsc, consumable npm package
 
 # Type checking
 pnpm typecheck
 cargo check
 ```
+
+**tauri-mcp is bundled with tsup** into a single self-contained `dist/index.js` with
+all dependencies (including `@modelcontextprotocol/sdk` and `zod`) inlined. This is
+critical — Claude Code plugin installs via GitHub do not run `npm install`, so the
+MCP server must work without any `node_modules` at runtime. When modifying
+`packages/tauri-mcp/src/`, the pre-commit hook rebuilds and stages `dist/` automatically.
+
+**tauri-plugin-mcp-api is NOT bundled** — it's a consumable frontend library installed
+into user apps via `pnpm add`, so externals must stay external.
 
 ## Architecture
 
