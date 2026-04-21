@@ -110,17 +110,83 @@ making any edits.** Do not edit until the user says "yes" / "ok" / "go".
 
 ## Production-safe variant (optional)
 
-If the user indicates they want MCP **only in dev builds** (feature-gated), offer the
-production-safe setup instead:
-- `Cargo.toml`: `tauri-plugin-mcp = { git = "...", optional = true }` + `[features]
-  dev-tools = ["dep:tauri-plugin-mcp"]`
-- `lib.rs`: wrap `.plugin(...)` with `#[cfg(feature = "dev-tools")]`
-- Split the MCP capability into `capabilities/.dev-tools.json.disabled` + a `build.rs`
-  that copies it into place when `CARGO_FEATURE_DEV_TOOLS` is set
-- Update `dev` script to `tauri dev --features dev-tools`
+**Ask the user upfront** whether they want MCP compiled into release builds or only
+enabled during development. If they want dev-only (recommended for shipping apps),
+use this feature-gated variant instead of the basic setup above:
 
-Details are in the `tauri-setup` skill — link the user there for the full recipe rather
-than inlining 200 lines into this installer unless they explicitly ask.
+**Cargo.toml:**
+```toml
+[features]
+default = []
+dev-tools = ["dep:tauri-plugin-mcp"]
+
+[dependencies]
+tauri-plugin-mcp = { git = "https://github.com/DaveDev42/tauri-plugin-mcp", optional = true }
+```
+
+**src-tauri/src/lib.rs:**
+```rust
+pub fn run() {
+    let mut builder = tauri::Builder::default();
+
+    #[cfg(feature = "dev-tools")]
+    {
+        builder = builder.plugin(tauri_plugin_mcp::init());
+    }
+
+    builder
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application");
+}
+```
+
+**Split the MCP permission into a dev-only capability file.** The main
+`capabilities/default.json` stays MCP-free. Create a git-tracked template
+`capabilities/.dev-tools.json.disabled`:
+```json
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "dev-tools",
+  "windows": ["main"],
+  "permissions": ["mcp:default"]
+}
+```
+
+Add `src-tauri/capabilities/dev-tools.json` to the project `.gitignore` (this is the
+generated active copy).
+
+**src-tauri/build.rs** — copy the template into place when the feature is enabled:
+```rust
+fn main() {
+    let dev_tools_cap = std::path::Path::new("capabilities/dev-tools.json");
+    let source_path = std::path::Path::new("capabilities/.dev-tools.json.disabled");
+
+    if std::env::var("CARGO_FEATURE_DEV_TOOLS").is_ok() {
+        let should_copy = if dev_tools_cap.exists() {
+            std::fs::read(source_path).ok() != std::fs::read(dev_tools_cap).ok()
+        } else {
+            true
+        };
+        if should_copy {
+            std::fs::copy(source_path, dev_tools_cap)
+                .expect("Failed to copy dev-tools capability file");
+        }
+    } else if dev_tools_cap.exists() {
+        std::fs::remove_file(dev_tools_cap).ok();
+    }
+
+    tauri_build::try_build(tauri_build::Attributes::default())
+        .expect("Failed to build tauri");
+}
+```
+
+**package.json** — update the dev script:
+```json
+{ "scripts": { "dev": "tauri dev --features dev-tools" } }
+```
+
+The frontend `import.meta.env.DEV` guard from step 6 still applies — it keeps the
+bridge from initializing even if the plugin were somehow compiled in.
 
 ## Output format
 

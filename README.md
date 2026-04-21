@@ -45,7 +45,6 @@ The MCP server ships as a self-contained single-file bundle (`packages/tauri-mcp
 | MCP Server | Self-contained `tauri-mcp` bundle (14 tools for app lifecycle, UI interaction, screenshots, logging) |
 | `/tauri-mcp:install` command | One-shot installer that edits your Tauri project to wire up the plugin |
 | `tauri-qa` skill | QA orchestration — prepares test scenarios, delegates to QA agent, validates results |
-| `tauri-setup` skill | Reference for manual installation steps (the installer command uses this recipe) |
 | `tauri-debug` skill | Diagnostic decision trees for common MCP session issues |
 | `qa-tester` agent | Testing agent (haiku) that executes test scenarios using MCP tools |
 | QA validation hook | Verifies QA PASS results include actual tool call evidence |
