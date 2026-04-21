@@ -1,6 +1,6 @@
 {
   "name": "tauri-mcp",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "MCP server for Tauri desktop app automation",
   "type": "module",
   "bin": {
