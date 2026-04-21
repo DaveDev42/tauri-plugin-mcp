@@ -28,7 +28,8 @@
   "scripts": {
     "build": "pnpm -r build",
     "prepare": "pnpm build",
-    "typecheck": "pnpm -r typecheck"
+    "typecheck": "pnpm -r typecheck",
+    "bump": "node scripts/bump-version.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.25.3",

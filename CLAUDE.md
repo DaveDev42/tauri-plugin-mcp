@@ -31,6 +31,33 @@ MCP server must work without any `node_modules` at runtime. When modifying
 **tauri-plugin-mcp-api is NOT bundled** — it's a consumable frontend library installed
 into user apps via `pnpm add`, so externals must stay external.
 
+## Releasing
+
+Claude Code plugins only pick up changes when the `version` string in the manifests
+is bumped — git commits alone are invisible to installed users. Version lives in
+**six files** that must always stay in lockstep:
+
+- `Cargo.toml`
+- `.claude-plugin/plugin.json`
+- `.claude-plugin/marketplace.json` (nested under `plugins[].version`)
+- `package.json` (root)
+- `packages/tauri-mcp/package.json`
+- `packages/tauri-plugin-mcp-api/package.json`
+
+Use the bump script — it updates all six, rebuilds, commits, tags `vX.Y.Z`, and
+pushes both `main` and the tag:
+
+```bash
+pnpm bump patch          # 0.3.1 -> 0.3.2
+pnpm bump minor          # 0.3.1 -> 0.4.0
+pnpm bump major          # 0.3.1 -> 1.0.0
+pnpm bump 0.5.0-rc.1     # explicit version
+```
+
+The script refuses to run on a dirty working tree so every release is a single,
+atomic commit. After it finishes, users can `/plugin update tauri-mcp` to receive
+the new version.
+
 ## Architecture
 
 ### Communication Flow
