@@ -22,65 +22,49 @@ pnpm typecheck
 cargo check
 ```
 
-**tauri-mcp is bundled with tsup** into a single self-contained `dist/index.js` with
-all dependencies (including `@modelcontextprotocol/sdk` and `zod`) inlined. This is
-critical — Claude Code plugin installs via GitHub do not run `npm install`, so the
-MCP server must work without any `node_modules` at runtime. When modifying
-`packages/tauri-mcp/src/`, the pre-commit hook rebuilds and stages `dist/` automatically.
+**`tauri-mcp` is bundled with tsup** into a single self-contained `dist/index.js`
+with all deps (`@modelcontextprotocol/sdk`, `zod`) inlined. Claude Code plugin
+installs don't run `npm install`, so the MCP server must work without any
+`node_modules` at runtime — without this, installs on fresh machines silently
+fail to register. The pre-commit hook rebuilds and stages `dist/` automatically.
 
-**tauri-plugin-mcp-api is NOT bundled** — it's a consumable frontend library installed
-into user apps via `pnpm add`, so externals must stay external.
+**`tauri-plugin-mcp-api` is NOT bundled** — it ships to user apps via `pnpm add`,
+so externals must stay external.
 
 ## Releasing
 
-Claude Code plugins only pick up changes when the `version` string in the manifests
-is bumped — git commits alone are invisible to installed users. Version lives in
-**six files** that must always stay in lockstep:
+Claude Code only picks up plugin changes when the `version` string is bumped —
+committing to `main` without a bump is invisible to installed users. Version
+lives in **six files** that must stay in lockstep: `Cargo.toml`,
+`.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json` (under
+`plugins[].version`), root `package.json`, and each of the two `packages/*/package.json`.
 
-- `Cargo.toml`
-- `.claude-plugin/plugin.json`
-- `.claude-plugin/marketplace.json` (nested under `plugins[].version`)
-- `package.json` (root)
-- `packages/tauri-mcp/package.json`
-- `packages/tauri-plugin-mcp-api/package.json`
-
-### Release flow
+Use `pnpm release`:
 
 ```bash
-pnpm release patch           # 0.3.2 -> 0.3.3
-pnpm release minor           # 0.3.2 -> 0.4.0
-pnpm release major           # 0.3.2 -> 1.0.0
+pnpm release patch           # 0.3.4 -> 0.3.5
 pnpm release 0.5.0-rc.1      # explicit version
-pnpm release --dry-run 0.4.0 # print what would happen, change nothing
+pnpm release --dry-run 0.4.0 # preview, write nothing
 ```
 
-(`pnpm bump` is a backwards-compatible alias for `pnpm release`.)
-
-The script enforces preflight checks before doing anything: must be on `main`,
-clean working tree, local `main` equal to `origin/main`, tag not already taken,
-new version differs from current, version is valid semver. Then it bumps all
-six files, rebuilds (`pnpm build` + `cargo check`), self-checks with
-`pnpm check:versions`, commits as `chore: release vX.Y.Z`, tags, and pushes
+The script refuses to run unless you're on `main`, clean, and up to date with
+`origin/main`. It bumps all six files, rebuilds (`pnpm build` + `cargo check`),
+self-checks with `pnpm check:versions`, then commits, tags `vX.Y.Z`, and pushes
 both `main` and the tag.
 
-### CI guardrails
+Two workflows back this up:
 
-Two GitHub workflows back the release process:
+- **`ci.yml`** (PR + push to `main`) — runs `pnpm check:versions`, typecheck,
+  build, dist-sync check, `cargo check`. A commit that skips `pnpm build` or
+  edits only one version file fails here.
+- **`release.yml`** (on `v*` tag push) — verifies the tag matches the file
+  version, re-runs the CI checks, then creates a GitHub Release with
+  auto-generated notes.
 
-- **`.github/workflows/ci.yml`** — runs on every PR and every push to `main`.
-  Verifies version lockstep (`pnpm check:versions`), typechecks, rebuilds,
-  ensures `packages/*/dist/` on disk matches committed artifacts, runs
-  `cargo check`. A local commit that skips `pnpm build` or that edits only one
-  of the six version files will fail here.
+On Linux runners `cargo check` needs GTK/webkit2gtk/pipewire/xdo system
+packages — both workflows install them before `pnpm install`.
 
-- **`.github/workflows/release.yml`** — runs when a `v*` tag is pushed.
-  Verifies that the tag name matches the version baked into the files, builds,
-  re-checks dist/, and creates a GitHub Release with auto-generated notes.
-  So `git tag v1.2.3 && git push --tags` on a repo whose files say `1.2.2`
-  will fail the workflow rather than publishing a mismatched release.
-
-After the release workflow succeeds, installed users can pick up the new
-version with `/plugin update tauri-mcp`.
+After a successful release, installed users update via `/plugin update tauri-mcp`.
 
 ## Architecture
 
@@ -262,9 +246,16 @@ Look for logs:
 
 ```
 /
-├── src/                    # Rust plugin
+├── src/                         # Rust plugin
 ├── packages/
-│   ├── tauri-mcp/         # MCP server
-│   └── tauri-plugin-mcp-api/  # Frontend bridge
-└── permissions/           # Tauri permissions
+│   ├── tauri-mcp/               # MCP server (tsup bundle)
+│   └── tauri-plugin-mcp-api/    # Frontend bridge (tsc)
+├── permissions/                 # Tauri permissions
+├── commands/install.md          # /tauri-mcp:install — auto-edits user's Tauri app
+├── scripts/
+│   ├── release.mjs              # pnpm release: bump + build + commit + tag + push
+│   └── check-versions.mjs       # pnpm check:versions: 6-file lockstep verify
+└── .github/workflows/
+    ├── ci.yml                   # PR + push: versions, typecheck, build, dist, cargo
+    └── release.yml              # tag push: verify match, build, gh release create
 ```
