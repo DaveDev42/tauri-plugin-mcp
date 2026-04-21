@@ -21,6 +21,17 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
+      - name: Install Tauri Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgtk-3-dev \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev
+
       - run: pnpm install --frozen-lockfile
 
       - name: Check versions are in sync across all 6 files
