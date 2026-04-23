@@ -35,9 +35,23 @@ so externals must stay external.
 
 Claude Code only picks up plugin changes when the `version` string is bumped —
 committing to `main` without a bump is invisible to installed users. Version
-lives in **six files** that must stay in lockstep: `Cargo.toml`,
-`.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json` (under
-`plugins[].version`), root `package.json`, and each of the two `packages/*/package.json`.
+lives in **six files** that must stay in lockstep.
+
+### Version Sync Checklist
+
+If you ever bump the version by hand (normally `pnpm release` does it for you),
+every one of these must move together or `pnpm check:versions` / CI will fail:
+
+- [ ] `Cargo.toml` — top-level `version = "x.y.z"`
+- [ ] `.claude-plugin/plugin.json` — `version` field
+- [ ] `.claude-plugin/marketplace.json` — `plugins[0].version`
+- [ ] `package.json` (repo root) — `version` field
+- [ ] `packages/tauri-mcp/package.json` — `version` field
+- [ ] `packages/tauri-plugin-mcp-api/package.json` — `version` field
+
+Run `pnpm check:versions` to verify; it prints `version: x.y.z (in sync)` on
+success or a per-file breakdown on drift. The exact file list lives in
+`scripts/check-versions.mjs`.
 
 Use `pnpm release`:
 
@@ -62,9 +76,33 @@ Two workflows back this up:
   auto-generated notes.
 
 On Linux runners `cargo check` needs GTK/webkit2gtk/pipewire/xdo system
-packages — both workflows install them before `pnpm install`.
+packages — both workflows install them before `pnpm install`. See
+**Linux Build Prerequisites** below for the exact command to mirror locally.
 
 After a successful release, installed users update via `/plugin update tauri-mcp`.
+
+### Linux Build Prerequisites
+
+If `cargo check` / `cargo build` fails locally on Ubuntu/Debian with missing
+`.pc` files or linker errors about `gtk`, `webkit2gtk`, `soup`, etc., you are
+missing the Tauri system deps. CI installs them via `.github/workflows/ci.yml`
+and `release.yml`; run the same command locally:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y \
+  libgtk-3-dev \
+  libwebkit2gtk-4.1-dev \
+  libayatana-appindicator3-dev \
+  librsvg2-dev \
+  libsoup-3.0-dev \
+  libjavascriptcoregtk-4.1-dev \
+  libpipewire-0.3-dev \
+  libxdo-dev
+```
+
+macOS and Windows have no equivalent prereq step — Tauri's system frameworks
+ship with the OS / VS Build Tools.
 
 ## Architecture
 
