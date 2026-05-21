@@ -41,11 +41,16 @@ pub fn get_window_id_by_title(pid: u32, title: &str) -> Result<u32, String> {
     );
     let windows = Window::all().map_err(|e| format!("Failed to enumerate windows: {}", e))?;
 
+    // Note: current_monitor() is intentionally NOT filtered here — under RDP or
+    // virtual-display environments (e.g. Windows Session 2 with no WMI monitors),
+    // xcap returns Err for current_monitor() even though the window is fully
+    // visible and capturable. Filtering on it would drop the target window.
+    // is_minimized() uses unwrap_or(false) so that windows with unknown state
+    // (also common on RDP) are assumed visible rather than excluded.
     let pid_matches: Vec<_> = windows
         .into_iter()
-        .filter(|w| w.current_monitor().is_ok())
         .filter(|w| w.pid().map(|p| p == pid).unwrap_or(false))
-        .filter(|w| !w.is_minimized().unwrap_or(true))
+        .filter(|w| !w.is_minimized().unwrap_or(false))
         .collect();
 
     // Try title match first
@@ -116,11 +121,16 @@ pub fn capture_window_by_title(pid: u32, title: &str) -> Result<serde_json::Valu
     let windows = Window::all().map_err(|e| format!("Failed to enumerate windows: {}", e))?;
     tracing::debug!("Found {} total windows", windows.len());
 
+    // Note: current_monitor() is intentionally NOT filtered here — under RDP or
+    // virtual-display environments (e.g. Windows Session 2 with no WMI monitors),
+    // xcap returns Err for current_monitor() even though the window is fully
+    // visible and capturable. Filtering on it would drop the target window.
+    // is_minimized() uses unwrap_or(false) so that windows with unknown state
+    // (also common on RDP) are assumed visible rather than excluded.
     let pid_matches: Vec<_> = windows
         .into_iter()
-        .filter(|w| w.current_monitor().is_ok())
         .filter(|w| w.pid().map(|p| p == pid).unwrap_or(false))
-        .filter(|w| !w.is_minimized().unwrap_or(true))
+        .filter(|w| !w.is_minimized().unwrap_or(false))
         .collect();
 
     tracing::debug!(
