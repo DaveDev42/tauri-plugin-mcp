@@ -26,6 +26,14 @@ image = { version = "0.25", default-features = false, features = ["png"] }
 
 [target.'cfg(windows)'.dependencies]
 tokio = { version = "1", features = ["sync", "time", "rt", "io-util", "net"] }
+winapi = { version = "0.3", features = [
+    "wingdi",
+    "winuser",
+    "windef",
+    "handleapi",
+    "errhandlingapi",
+    "processthreadsapi",
+] }
 
 [build-dependencies]
 tauri-plugin = { version = "2", features = ["build"] }
