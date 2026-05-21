@@ -217,6 +217,10 @@ fn capture_window_win32(pid: u32, title: &str) -> Result<serde_json::Value, Stri
         EnumWindows, GetClientRect, GetWindowThreadProcessId, IsIconic, IsWindow, IsWindowVisible,
         PrintWindow, PW_CLIENTONLY,
     };
+    // PW_RENDERFULLCONTENT (0x2): forces DWM to composite all layers before capture.
+    // This is required for WebView2/DirectComposition windows which otherwise appear
+    // white when captured with PW_CLIENTONLY alone.
+    const PW_RENDERFULLCONTENT: u32 = 0x00000002;
 
     // Collect candidate HWNDs for this PID using EnumWindows.
     // We collect title + size to pick the best match, mirroring xcap's strategy.
@@ -347,15 +351,22 @@ fn capture_window_win32(pid: u32, title: &str) -> Result<serde_json::Value, Stri
 
         let old_bitmap = SelectObject(mem_dc, bitmap as _);
 
-        // PrintWindow with PW_CLIENTONLY renders the window content even when
-        // the window is off-screen or on a virtual/RDP display.
-        let pw_ok = PrintWindow(hwnd, mem_dc, PW_CLIENTONLY);
+        // PrintWindow with PW_CLIENTONLY | PW_RENDERFULLCONTENT:
+        // - PW_CLIENTONLY: capture client area only (no title bar/frame)
+        // - PW_RENDERFULLCONTENT: forces DWM to composite all DirectComposition/GPU
+        //   layers (required for WebView2 windows; without it the output is white)
+        // Works even when the window is off-screen or on a virtual/RDP display.
+        let pw_ok = PrintWindow(hwnd, mem_dc, PW_CLIENTONLY | PW_RENDERFULLCONTENT);
         if pw_ok == 0 {
-            // PrintWindow failed — try BitBlt from window DC as last resort
-            let wnd_dc = winapi::um::winuser::GetDC(hwnd);
-            if !wnd_dc.is_null() {
-                BitBlt(mem_dc, 0, 0, width as i32, height as i32, wnd_dc, 0, 0, SRCCOPY);
-                winapi::um::winuser::ReleaseDC(hwnd, wnd_dc);
+            // Fall back to PW_RENDERFULLCONTENT without PW_CLIENTONLY (full window)
+            let pw_ok2 = PrintWindow(hwnd, mem_dc, PW_RENDERFULLCONTENT);
+            if pw_ok2 == 0 {
+                // Last resort: BitBlt from window DC (may fail on RDP/virtual displays)
+                let wnd_dc = winapi::um::winuser::GetDC(hwnd);
+                if !wnd_dc.is_null() {
+                    BitBlt(mem_dc, 0, 0, width as i32, height as i32, wnd_dc, 0, 0, SRCCOPY);
+                    winapi::um::winuser::ReleaseDC(hwnd, wnd_dc);
+                }
             }
         }
 
