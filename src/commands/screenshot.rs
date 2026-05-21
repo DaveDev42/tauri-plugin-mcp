@@ -121,7 +121,8 @@ pub fn capture_window_by_title(pid: u32, title: &str) -> Result<serde_json::Valu
     let windows = Window::all().map_err(|e| format!("Failed to enumerate windows: {}", e))?;
     tracing::debug!("Found {} total windows", windows.len());
 
-    // TEMP DIAG: log all windows to understand xcap enumeration under RDP
+    // TEMP DIAG: dump all windows to stderr so Node MCP server captures it
+    eprintln!("[DIAG-XCAP] total_windows={} target_pid={}", windows.len(), pid);
     for w in &windows {
         let w_pid = w.pid().ok();
         let w_title = w.title().unwrap_or_default();
@@ -129,8 +130,8 @@ pub fn capture_window_by_title(pid: u32, title: &str) -> Result<serde_json::Valu
         let w_monitor = w.current_monitor().map(|_| "ok").unwrap_or("err");
         let w_width = w.width().unwrap_or(0);
         let w_height = w.height().unwrap_or(0);
-        tracing::warn!(
-            "[DIAG] window: pid={:?} title={:?} minimized={:?} monitor={} size={}x{}",
+        eprintln!(
+            "[DIAG-XCAP] window: pid={:?} title={:?} minimized={:?} monitor={} size={}x{}",
             w_pid, w_title, w_minimized, w_monitor, w_width, w_height
         );
     }
