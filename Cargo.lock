@@ -4174,6 +4174,9 @@ dependencies = [
  "base64 0.22.1",
  "image",
  "interprocess",
+ "log",
+ "once_cell",
+ "parking_lot",
  "serde",
  "serde_json",
  "tauri",
@@ -4182,6 +4185,7 @@ dependencies = [
  "tokio",
  "tracing",
  "uuid",
+ "winapi",
  "xcap",
 ]
 
