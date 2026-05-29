@@ -22,6 +22,9 @@
 pub mod commands;
 pub mod debug_server;
 pub mod protocol;
+pub mod rust_log_capture;
+
+pub use rust_log_capture::{install_log_capture, install_log_capture_with_delegate};
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -760,6 +763,41 @@ impl<R: Runtime + 'static> CommandHandler for IpcCommandHandler<R> {
                 });
 
                 JsonRpcResponse::success(id, serde_json::json!({"exiting": true}))
+            }
+
+            "get_rust_logs" => {
+                // Parse optional filters
+                let since_ms = request.params.get("since_ms").and_then(|v| v.as_u64());
+                let min_level = request
+                    .params
+                    .get("min_level")
+                    .and_then(|v| v.as_str())
+                    .and_then(|s| s.parse::<log::Level>().ok());
+                let max_records = request
+                    .params
+                    .get("max_records")
+                    .and_then(|v| v.as_u64())
+                    .map(|n| n as usize);
+                let target_substring = request
+                    .params
+                    .get("target_substring")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+
+                let records = crate::rust_log_capture::query_records(
+                    since_ms,
+                    min_level,
+                    max_records,
+                    target_substring.as_deref(),
+                );
+
+                JsonRpcResponse::success(
+                    id,
+                    serde_json::json!({
+                        "records": records,
+                        "count": records.len(),
+                    }),
+                )
             }
 
             _ => JsonRpcResponse::error(

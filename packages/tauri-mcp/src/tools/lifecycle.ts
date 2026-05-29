@@ -111,6 +111,16 @@ export const toolSchemas = {
       window: z.string().optional().describe('Window label for frontend logs (default: focused window)'),
     }),
   },
+  get_rust_logs: {
+    name: 'get_rust_logs',
+    description: 'Get recent log::*! records emitted by the Rust backend. Requires tauri_plugin_mcp::install_log_capture() to be called before other loggers in the kiosk app.',
+    inputSchema: z.object({
+      since_ms: z.number().optional().describe('Only return records with timestamp_ms > since_ms (Unix ms)'),
+      min_level: z.enum(['TRACE', 'DEBUG', 'INFO', 'WARN', 'ERROR']).optional().describe('Minimum log level (default: DEBUG)'),
+      max_records: z.number().optional().describe('Max records to return (default: 200)'),
+      target_substring: z.string().optional().describe('Filter by target string containing this substring (case-insensitive)'),
+    }),
+  },
   get_restart_events: {
     name: 'get_restart_events',
     description: 'Get recent app restart/reload events with the files that triggered them. Includes Rust rebuilds (backend) and HMR updates (frontend).',
@@ -311,6 +321,28 @@ export function createToolHandlers(tauriManager: TauriManager, socketManager: So
           {
             type: 'text' as const,
             text: result,
+          },
+        ],
+      };
+    },
+
+    get_rust_logs: async (args: { since_ms?: number; min_level?: string; max_records?: number; target_substring?: string }) => {
+      const params: Record<string, unknown> = {};
+      if (args.since_ms != null) params.since_ms = args.since_ms;
+      if (args.min_level) params.min_level = args.min_level;
+      if (args.max_records != null) params.max_records = args.max_records;
+      if (args.target_substring) params.target_substring = args.target_substring;
+
+      const result = await socketManager.sendCommand('get_rust_logs', params) as {
+        records: Array<{ timestamp_ms: number; level: string; target: string; message: string }>;
+        count: number;
+      };
+
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify(result, null, 2),
           },
         ],
       };

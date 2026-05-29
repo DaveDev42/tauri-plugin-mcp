@@ -23,6 +23,9 @@ base64 = "0.22"
 tauri = { version = "2", default-features = false, features = ["wry"] }
 xcap = "0.7"
 image = { version = "0.25", default-features = false, features = ["png"] }
+log = { version = "0.4", features = ["std"] }
+once_cell = "1"
+parking_lot = "0.12"
 
 [target.'cfg(windows)'.dependencies]
 tokio = { version = "1", features = ["sync", "time", "rt", "io-util", "net"] }
