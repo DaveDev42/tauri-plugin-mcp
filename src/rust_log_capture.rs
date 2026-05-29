@@ -75,6 +75,68 @@ fn push_record(record: &Record) {
     buf.push_back(entry);
 }
 
+/// Push a log record into the ringbuffer directly, **without** being the
+/// global `log::Log` impl.
+///
+/// This is the entry point for the *delegate pattern*: callers that already
+/// have their own global logger (e.g. a fern `Dispatch` chain) can route
+/// records to the MCP ringbuffer by calling this function from a custom fern
+/// target or equivalent wrapper, leaving the global logger slot untouched.
+///
+/// Records pushed here are indistinguishable from those pushed by
+/// [`McpLogger`] — `get_rust_logs` returns them via the same ringbuffer.
+///
+/// The ringbuffer cap (5 000 entries, oldest-drop) applies identically.
+///
+/// # Example — fern dispatch target
+///
+/// ```rust,ignore
+/// fern::Dispatch::new()
+///     .chain(fern::Output::call(|record| {
+///         tauri_plugin_mcp::push_log_record(
+///             record.level(),
+///             record.target(),
+///             &record.args().to_string(),
+///         );
+///     }))
+///     .chain(/* your file / stderr output … */)
+///     .apply()
+///     .expect("logger already set");
+/// ```
+pub fn push_log_record(level: Level, target: &str, message: &str) {
+    let timestamp_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+
+    let entry = LogRecord {
+        timestamp_ms,
+        level: level.to_string(),
+        target: target.to_string(),
+        message: message.to_string(),
+    };
+
+    let mut buf = RINGBUF.lock();
+    if buf.len() == RINGBUF_CAP {
+        buf.pop_front();
+    }
+    buf.push_back(entry);
+}
+
+/// Returns `true` if the ringbuffer is ready to accept records.
+///
+/// The buffer is backed by a `Lazy` static and is initialized on first access,
+/// so this always returns `true` after the first call to [`push_log_record`] or
+/// after [`install_log_capture`] / [`install_log_capture_with_delegate`] has
+/// run.  Callers that want to gate a fern target on capture being "active" can
+/// use this helper; the unconditional push is also safe.
+#[inline]
+pub fn is_capture_enabled() -> bool {
+    // Force initialization of the Lazy so the answer is always accurate.
+    let _ = RINGBUF.lock();
+    true
+}
+
 /// Query the ringbuffer with optional filters.
 ///
 /// * `since_ms`         – only return records with `timestamp_ms > since_ms`
@@ -199,4 +261,61 @@ pub fn install_log_capture_with_delegate(delegate: Box<dyn Log>) -> Result<(), S
     log::set_boxed_logger(logger)?;
     log::set_max_level(LevelFilter::Trace);
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Verify that `push_log_record` writes to the ringbuffer and that
+    /// `query_records` returns the pushed entry — no global logger required.
+    #[test]
+    fn push_log_record_visible_in_query() {
+        // Unique target so this test's records are isolated from any noise
+        // produced by other tests running in the same process.
+        let unique_target = "tauri_plugin_mcp_test_push_api";
+
+        push_log_record(Level::Info, unique_target, "hello world");
+
+        let records = query_records(None, Some(Level::Info), Some(500), Some(unique_target));
+
+        assert!(
+            !records.is_empty(),
+            "Expected at least one record for target '{}'",
+            unique_target
+        );
+
+        let rec = records.last().unwrap();
+        assert_eq!(rec.level, "INFO");
+        assert_eq!(rec.target, unique_target);
+        assert_eq!(rec.message, "hello world");
+        assert!(rec.timestamp_ms > 0, "timestamp_ms should be non-zero");
+    }
+
+    /// Verify that `push_log_record` works without McpLogger as the global
+    /// logger (i.e. no call to `install_log_capture` is needed).
+    /// This test deliberately does NOT call `install_log_capture` — if it
+    /// compiled and ran correctly, the global logger was never involved.
+    #[test]
+    fn push_log_record_does_not_require_global_logger() {
+        // If we reach this point without panicking, the function does not
+        // depend on log::logger() being McpLogger.
+        push_log_record(Level::Warn, "no_global_logger_needed", "direct push");
+        let records =
+            query_records(None, Some(Level::Warn), Some(10), Some("no_global_logger_needed"));
+        assert!(
+            records.iter().any(|r| r.message == "direct push"),
+            "Record should be in ringbuffer regardless of global logger state"
+        );
+    }
+
+    /// Verify `is_capture_enabled` always returns true once the module is loaded.
+    #[test]
+    fn is_capture_enabled_always_true() {
+        assert!(is_capture_enabled());
+    }
 }
