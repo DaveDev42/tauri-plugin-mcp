@@ -24,7 +24,9 @@ pub mod debug_server;
 pub mod protocol;
 pub mod rust_log_capture;
 
-pub use rust_log_capture::{install_log_capture, install_log_capture_with_delegate};
+pub use rust_log_capture::{
+    install_log_capture, install_log_capture_with_delegate, is_capture_enabled, push_log_record,
+};
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
