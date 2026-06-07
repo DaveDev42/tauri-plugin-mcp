@@ -924,6 +924,10 @@ export class TauriManager {
 
       proc.on('exit', () => {
         clearTimeout(forceKillTimer);
+        // On Unix, mop up any children that survived the group-kill signal
+        if (process.platform !== 'win32') {
+          this.cleanupOrphanProcesses();
+        }
         this.process = null;
         this.launchedAt = null;
         this.detectedPipePath = null;
@@ -942,12 +946,13 @@ export class TauriManager {
           proc.kill('SIGTERM');
         }
       } else {
-        // On Windows, kill the app binary first, then the process tree
-        // This ensures the actual Tauri app is terminated even if process tree fails
-        this.cleanupOrphanProcesses();
-
+        // On Windows, synchronously kill the full process tree (cmd.exe → pnpm → turbo → vite)
+        // BEFORE sending SIGTERM. Using spawnSync ensures the tree is dead before we return,
+        // eliminating the race where cmd.exe exits on SIGTERM while pnpm/turbo/vite are still
+        // alive and holding the Vite dev port. proc.kill('SIGTERM') is a harmless no-op after
+        // the synchronous /T /F kill, but kept for completeness.
         if (proc.pid) {
-          spawn('taskkill', ['/PID', proc.pid.toString(), '/T', '/F'], {
+          spawnSync('taskkill', ['/PID', String(proc.pid), '/T', '/F'], {
             stdio: 'ignore',
             shell: true,
           });
