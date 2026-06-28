@@ -2,7 +2,7 @@
 
 use std::path::Path;
 use std::sync::Arc;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
 
@@ -26,6 +26,8 @@ pub struct DebugServer {
     socket_path: String,
     handler: Arc<Mutex<Option<Arc<dyn CommandHandler>>>>,
     accept_task: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
+    /// Accept task for the optional TCP listener (set when TAURI_MCP_TCP is configured)
+    tcp_accept_task: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
 
 impl DebugServer {
@@ -35,6 +37,7 @@ impl DebugServer {
             socket_path,
             handler: Arc::new(Mutex::new(None)),
             accept_task: std::sync::Mutex::new(None),
+            tcp_accept_task: std::sync::Mutex::new(None),
         }
     }
 
@@ -150,6 +153,9 @@ impl DebugServer {
             *guard = Some(handle);
         }
 
+        // Optionally start TCP transport (when TAURI_MCP_TCP is set)
+        self.start_tcp_if_configured().await?;
+
         Ok(())
     }
 
@@ -198,16 +204,26 @@ impl DebugServer {
             *guard = Some(handle);
         }
 
+        // Optionally start TCP transport (when TAURI_MCP_TCP is set)
+        self.start_tcp_if_configured().await?;
+
         Ok(())
     }
 
-    /// Handle a connection (unified for all platforms)
-    async fn handle_connection(
-        stream: Stream,
+    /// Core JSON-RPC newline-delimited connection handler — shared between IPC and TCP transports.
+    ///
+    /// Both the named-pipe/unix-socket listener and the optional TCP listener funnel accepted
+    /// connections through this function so the framing, parsing, and dispatch logic is kept
+    /// in exactly one place with no protocol divergence.
+    async fn run_connection<R, W>(
+        mut reader: R,
+        mut writer: W,
         handler: Arc<Mutex<Option<Arc<dyn CommandHandler>>>>,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let (reader, mut writer) = stream.split();
-        let mut reader = BufReader::new(reader);
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
+    where
+        R: AsyncBufRead + Unpin,
+        W: AsyncWrite + Unpin,
+    {
         let mut line = String::new();
 
         loop {
@@ -218,14 +234,14 @@ impl DebugServer {
                 break;
             }
 
-            let line = line.trim();
-            if line.is_empty() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
                 continue;
             }
 
-            debug!("Received: {}", line);
+            debug!("Received: {}", trimmed);
 
-            let response = match serde_json::from_str::<JsonRpcRequest>(line) {
+            let response = match serde_json::from_str::<JsonRpcRequest>(trimmed) {
                 Ok(request) => {
                     let handler_clone = {
                         let guard = handler.lock().await;
@@ -257,6 +273,96 @@ impl DebugServer {
         Ok(())
     }
 
+    /// Handle a named-pipe / unix-socket connection (all platforms)
+    async fn handle_connection(
+        stream: Stream,
+        handler: Arc<Mutex<Option<Arc<dyn CommandHandler>>>>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let (reader, writer) = stream.split();
+        let reader = BufReader::new(reader);
+        Self::run_connection(reader, writer, handler).await
+    }
+
+    /// Handle a TCP connection (used when TAURI_MCP_TCP is set)
+    async fn handle_tcp_connection(
+        stream: tokio::net::TcpStream,
+        handler: Arc<Mutex<Option<Arc<dyn CommandHandler>>>>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let (reader, writer) = stream.into_split();
+        let reader = BufReader::new(reader);
+        Self::run_connection(reader, writer, handler).await
+    }
+
+    /// Parse the TAURI_MCP_TCP env var into a SocketAddr.
+    ///
+    /// Accepted formats:
+    ///  - `HOST:PORT`  (e.g. `127.0.0.1:19878`, `0.0.0.0:19878`)
+    ///  - `PORT`       (e.g. `19878` — binds on 127.0.0.1)
+    fn parse_tcp_env(val: &str) -> Result<std::net::SocketAddr, String> {
+        // Try full HOST:PORT first
+        if let Ok(addr) = val.parse::<std::net::SocketAddr>() {
+            return Ok(addr);
+        }
+        // Try bare PORT number (default host 127.0.0.1)
+        if let Ok(port) = val.parse::<u16>() {
+            return Ok(std::net::SocketAddr::from(([127, 0, 0, 1], port)));
+        }
+        Err(format!(
+            "Invalid TAURI_MCP_TCP value '{}': expected HOST:PORT or PORT",
+            val
+        ))
+    }
+
+    /// If the `TAURI_MCP_TCP` environment variable is set, bind a TCP listener on the
+    /// specified address and serve the identical JSON-RPC newline-delimited protocol
+    /// concurrently with the existing named-pipe / unix-socket listener.
+    ///
+    /// When `TAURI_MCP_TCP` is **not** set this function is a no-op and returns `Ok(())`.
+    async fn start_tcp_if_configured(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let tcp_env = match std::env::var("TAURI_MCP_TCP") {
+            Ok(v) if !v.trim().is_empty() => v,
+            _ => return Ok(()), // Env not set — leave named-pipe / unix-socket only
+        };
+
+        let addr = Self::parse_tcp_env(tcp_env.trim())
+            .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { e.into() })?;
+
+        let listener = tokio::net::TcpListener::bind(addr).await.map_err(|e| {
+            format!("[tauri-plugin-mcp] Failed to bind TCP listener on {}: {}", addr, e)
+        })?;
+
+        let bound = listener.local_addr()?;
+        eprintln!("[tauri-plugin-mcp] TCP transport listening on {}", bound);
+        info!("TCP transport listening on {}", bound);
+
+        let handler = Arc::clone(&self.handler);
+
+        let handle = tokio::spawn(async move {
+            loop {
+                match listener.accept().await {
+                    Ok((stream, peer)) => {
+                        eprintln!("[tauri-plugin-mcp] TCP client connected from {}", peer);
+                        let handler = Arc::clone(&handler);
+                        tokio::spawn(async move {
+                            if let Err(e) = Self::handle_tcp_connection(stream, handler).await {
+                                error!("TCP connection error: {}", e);
+                            }
+                        });
+                    }
+                    Err(e) => {
+                        error!("TCP accept error: {}", e);
+                    }
+                }
+            }
+        });
+
+        if let Ok(mut guard) = self.tcp_accept_task.lock() {
+            *guard = Some(handle);
+        }
+
+        Ok(())
+    }
+
     /// Get the socket path for external use
     /// On Unix: returns the file path (e.g., /path/to/.tauri-mcp.sock)
     /// On Windows: returns the pipe name without prefix (e.g., tauri-mcp-abc123)
@@ -278,9 +384,18 @@ impl DebugServer {
         format!(r"\\.\pipe\{}", self.socket_path)
     }
 
-    /// Abort the accept loop task if it is running
+    /// Abort the IPC accept loop task if it is running
     fn abort_accept_task(&self) {
         if let Ok(mut guard) = self.accept_task.lock() {
+            if let Some(handle) = guard.take() {
+                handle.abort();
+            }
+        }
+    }
+
+    /// Abort the TCP accept loop task if it is running
+    fn abort_tcp_accept_task(&self) {
+        if let Ok(mut guard) = self.tcp_accept_task.lock() {
             if let Some(handle) = guard.take() {
                 handle.abort();
             }
@@ -292,6 +407,7 @@ impl DebugServer {
 impl Drop for DebugServer {
     fn drop(&mut self) {
         self.abort_accept_task();
+        self.abort_tcp_accept_task();
         let _ = std::fs::remove_file(&self.socket_path);
     }
 }
@@ -300,5 +416,6 @@ impl Drop for DebugServer {
 impl Drop for DebugServer {
     fn drop(&mut self) {
         self.abort_accept_task();
+        self.abort_tcp_accept_task();
     }
 }

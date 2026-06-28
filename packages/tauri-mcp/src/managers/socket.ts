@@ -67,6 +67,10 @@ export class SocketManager {
   }
 
   isConnected(): boolean {
+    // In TCP mode, the transport is always available (actual connectivity verified on demand)
+    if (process.env.TAURI_MCP_TCP) {
+      return true;
+    }
     if (process.platform === 'win32') {
       // For Windows, we can't easily check named pipe existence
       // The provider being set indicates TauriManager detected the pipe
@@ -133,15 +137,41 @@ export class SocketManager {
   }
 
   /**
+   * Parse TAURI_MCP_TCP env value into host + port.
+   * Accepted formats: HOST:PORT (e.g. 127.0.0.1:19878) or bare PORT (default host 127.0.0.1).
+   */
+  private static parseTcpEnv(value: string): { host: string; port: number } {
+    const trimmed = value.trim();
+    // Try bare port number first
+    const barePort = parseInt(trimmed, 10);
+    if (!isNaN(barePort) && String(barePort) === trimmed) {
+      return { host: '127.0.0.1', port: barePort };
+    }
+    // HOST:PORT — split on last colon to support IPv6 hosts like [::1]:PORT
+    const lastColon = trimmed.lastIndexOf(':');
+    if (lastColon > 0) {
+      const host = trimmed.slice(0, lastColon) || '127.0.0.1';
+      const port = parseInt(trimmed.slice(lastColon + 1), 10);
+      return { host, port };
+    }
+    throw new Error(`Invalid TAURI_MCP_TCP value '${value}': expected HOST:PORT or PORT`);
+  }
+
+  /**
    * Send a single command without retry
    */
   private async sendCommandOnce(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
-    const socketPath = this.getSocketPath();
+    // TCP mode: when TAURI_MCP_TCP is set, dial TCP instead of the local pipe/socket.
+    // This is how a remote MCP server reaches an app on another machine (e.g. via SSH tunnel).
+    const tcpEnv = process.env.TAURI_MCP_TCP;
+    const connectionTarget: string | { host: string; port: number } = tcpEnv
+      ? SocketManager.parseTcpEnv(tcpEnv)
+      : this.getSocketPath();
 
     return new Promise((resolve, reject) => {
       let settled = false;
 
-      const client = net.createConnection(socketPath, () => {
+      const client = net.createConnection(connectionTarget as any, () => {
         const request: JsonRpcRequest = {
           jsonrpc: '2.0',
           id: ++requestIdCounter,
@@ -184,10 +214,15 @@ export class SocketManager {
 
       client.on('error', (err) => {
         clearTimeout(timeout);
-        if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        const code = (err as NodeJS.ErrnoException).code;
+        if (code === 'ENOENT') {
+          // Named pipe / unix socket not found — app not running
           reject(new Error('App not running. Use start_session first.'));
-        } else if ((err as NodeJS.ErrnoException).code === 'ECONNREFUSED') {
-          reject(new Error('App is starting up. Please wait and try again.'));
+        } else if (code === 'ECONNREFUSED') {
+          // TCP port not accepting / named pipe exists but refusing connections
+          reject(new Error(tcpEnv
+            ? `TCP connection refused on ${tcpEnv}. Is the app running with TAURI_MCP_TCP set?`
+            : 'App is starting up. Please wait and try again.'));
         } else {
           reject(new Error(`Socket error: ${err.message}`));
         }
