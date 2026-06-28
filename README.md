@@ -396,6 +396,77 @@ Claude Code <-> MCP Server <-> Socket <-> Tauri Plugin <-> JS Bridge <-> Your Ap
 - **Unix**: `{project_root}/.tauri-mcp.sock`
 - **Windows**: `\\.\pipe\tauri-mcp-{hash}` (hash derived from project path)
 
+## TCP Transport (remote access via SSH tunnel)
+
+By default the plugin communicates over a local named pipe (Windows) or Unix socket (macOS/Linux). Named pipes and Unix sockets are machine-local — they cannot cross a network boundary. Use the optional **TCP transport** when the Tauri app runs on a different machine than Claude Code (e.g. a kiosk PC driven remotely, or a CI runner).
+
+When `TAURI_MCP_TCP` is unset, behavior is byte-for-byte unchanged — the existing pipe/socket is the only transport.
+
+### App side (Rust plugin)
+
+Set `TAURI_MCP_TCP` when launching the app. The plugin binds a TCP listener **in addition to** the existing pipe/socket (the pipe is never removed).
+
+```
+TAURI_MCP_TCP=127.0.0.1:19878   # bind on loopback only (recommended — reach via SSH tunnel)
+TAURI_MCP_TCP=19878              # shorthand — same as 127.0.0.1:19878
+TAURI_MCP_TCP=0.0.0.0:19878     # bind all interfaces (only if network is fully trusted)
+```
+
+The plugin logs the bound address on startup:
+```
+[tauri-plugin-mcp] TCP transport listening on 127.0.0.1:19878
+```
+
+### MCP server side (Node)
+
+Set the same `TAURI_MCP_TCP` env on the MCP server process. It dials TCP instead of the local pipe/socket and skips all local pipe discovery:
+
+```json
+{
+  "mcpServers": {
+    "tauri-mcp": {
+      "command": "npx",
+      "args": ["tauri-mcp"],
+      "env": {
+        "TAURI_APP_DIR": ".",
+        "TAURI_MCP_TCP": "127.0.0.1:19878"
+      }
+    }
+  }
+}
+```
+
+### Worked example — remote kiosk via SSH tunnel
+
+**On the remote machine** (kiosk app running with TCP transport):
+```bash
+TAURI_MCP_TCP=127.0.0.1:19878 pnpm tauri dev
+# → [tauri-plugin-mcp] TCP transport listening on 127.0.0.1:19878
+```
+
+**On the dev machine** (forward the port via SSH):
+```bash
+ssh -L 19878:127.0.0.1:19878 kiosk-host
+```
+
+**MCP server `.mcp.json`** (dev machine, connects through the tunnel):
+```json
+{
+  "mcpServers": {
+    "tauri-mcp": {
+      "command": "npx",
+      "args": ["tauri-mcp"],
+      "env": {
+        "TAURI_APP_DIR": "/path/to/local/project",
+        "TAURI_MCP_TCP": "127.0.0.1:19878"
+      }
+    }
+  }
+}
+```
+
+`start_session` / `stop_session` are not available in TCP mode (the MCP server cannot launch or kill a process on the remote machine). Use the interaction and observability tools (`snapshot`, `click`, `get_logs`, etc.) to drive the already-running app.
+
 ## Troubleshooting
 
 ### "MCP bridge not initialized"
