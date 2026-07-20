@@ -18435,6 +18435,9 @@ ${logs}`);
       }, 5e3);
       proc.on("exit", () => {
         clearTimeout(forceKillTimer);
+        if (process.platform !== "win32") {
+          this.cleanupOrphanProcesses();
+        }
         this.process = null;
         this.launchedAt = null;
         this.detectedPipePath = null;
@@ -18449,9 +18452,8 @@ ${logs}`);
           proc.kill("SIGTERM");
         }
       } else {
-        this.cleanupOrphanProcesses();
         if (proc.pid) {
-          spawn("taskkill", ["/PID", proc.pid.toString(), "/T", "/F"], {
+          spawnSync("taskkill", ["/PID", String(proc.pid), "/T", "/F"], {
             stdio: "ignore",
             shell: true
           });
