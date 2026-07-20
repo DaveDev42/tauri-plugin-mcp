@@ -1,4 +1,5 @@
 import * as path from 'path';
+import { resolveProjectRoot } from './resolve-project-root.js';
 import { McpServer } from './server.js';
 
 // Auto-detect window prefix from repository directory name (if not explicitly set)
@@ -10,9 +11,14 @@ if (!process.env.TAURI_MCP_WINDOW_PREFIX) {
   }
 }
 
-// TAURI_APP_DIR (plugin config) > TAURI_PROJECT_ROOT (legacy) > cwd
-const projectRoot = process.env.TAURI_APP_DIR || process.env.TAURI_PROJECT_ROOT || process.cwd();
-const server = new McpServer(projectRoot);
+// TAURI_APP_DIR (plugin config) > TAURI_PROJECT_ROOT (legacy) > cwd, then a
+// bounded search for src-tauri/ so monorepos work without configuration.
+const resolution = resolveProjectRoot();
+for (const diagnostic of resolution.diagnostics) {
+  console.error(`[tauri-mcp] ${diagnostic}`);
+}
+console.error(`[tauri-mcp] Project root: ${resolution.projectRoot} (from ${resolution.source})`);
+const server = new McpServer(resolution.projectRoot);
 
 let isShuttingDown = false;
 
