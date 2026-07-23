@@ -19023,6 +19023,9 @@ var SocketManager = class _SocketManager {
     throw new Error("Socket path provider not set. Call setSocketPathProvider() first on Windows.");
   }
   isConnected() {
+    if (process.env.TAURI_MCP_TCP) {
+      return true;
+    }
     if (process.platform === "win32") {
       return this.socketPathProvider !== null;
     }
@@ -19072,13 +19075,32 @@ var SocketManager = class _SocketManager {
     return new Promise((resolve3) => setTimeout(resolve3, ms));
   }
   /**
+   * Parse TAURI_MCP_TCP env value into host + port.
+   * Accepted formats: HOST:PORT (e.g. 127.0.0.1:19878) or bare PORT (default host 127.0.0.1).
+   */
+  static parseTcpEnv(value) {
+    const trimmed = value.trim();
+    const barePort = parseInt(trimmed, 10);
+    if (!isNaN(barePort) && String(barePort) === trimmed) {
+      return { host: "127.0.0.1", port: barePort };
+    }
+    const lastColon = trimmed.lastIndexOf(":");
+    if (lastColon > 0) {
+      const host = trimmed.slice(0, lastColon) || "127.0.0.1";
+      const port = parseInt(trimmed.slice(lastColon + 1), 10);
+      return { host, port };
+    }
+    throw new Error(`Invalid TAURI_MCP_TCP value '${value}': expected HOST:PORT or PORT`);
+  }
+  /**
    * Send a single command without retry
    */
   async sendCommandOnce(method, params = {}) {
-    const socketPath = this.getSocketPath();
+    const tcpEnv = process.env.TAURI_MCP_TCP;
+    const connectionTarget = tcpEnv ? _SocketManager.parseTcpEnv(tcpEnv) : this.getSocketPath();
     return new Promise((resolve3, reject) => {
       let settled = false;
-      const client = net2.createConnection(socketPath, () => {
+      const client = net2.createConnection(connectionTarget, () => {
         const request = {
           jsonrpc: "2.0",
           id: ++requestIdCounter,
@@ -19110,10 +19132,11 @@ var SocketManager = class _SocketManager {
       });
       client.on("error", (err) => {
         clearTimeout(timeout);
-        if (err.code === "ENOENT") {
+        const code = err.code;
+        if (code === "ENOENT") {
           reject(new Error("App not running. Use start_session first."));
-        } else if (err.code === "ECONNREFUSED") {
-          reject(new Error("App is starting up. Please wait and try again."));
+        } else if (code === "ECONNREFUSED") {
+          reject(new Error(tcpEnv ? `TCP connection refused on ${tcpEnv}. Is the app running with TAURI_MCP_TCP set?` : "App is starting up. Please wait and try again."));
         } else {
           reject(new Error(`Socket error: ${err.message}`));
         }
