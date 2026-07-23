@@ -1,0 +1,10 @@
+# Normalize line endings to LF in the repo regardless of the contributor's
+# core.autocrlf. The committed dist/ artifacts embed source text verbatim in
+# sourcesContent, so a CRLF checkout produces a bundle that can never match a
+# Linux CI build — the dist-sync check then fails on Windows for reasons that
+# have nothing to do with the change. Pinning eol=lf makes the check
+# platform-independent.
+* text=auto eol=lf
+
+# Bundled build outputs: generated, LF, not worth diffing by hand.
+packages/*/dist/** linguist-generated=true

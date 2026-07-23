@@ -27,7 +27,7 @@
   "types": "./packages/tauri-plugin-mcp-api/dist/index.d.ts",
   "scripts": {
     "build": "pnpm -r build",
-    "prepare": "pnpm build",
+    "prepare": "node scripts/setup-hooks.mjs && pnpm build",
     "typecheck": "pnpm -r typecheck",
     "check:versions": "node scripts/check-versions.mjs",
     "release": "node scripts/release.mjs",

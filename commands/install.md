@@ -18,9 +18,17 @@ Parse `$ARGUMENTS` as a whitespace-separated list:
 - **First positional** — Tauri app directory relative to the current working
   directory. If absent, default to `.` (single-app repo). The Tauri app directory
   is the one that **contains `src-tauri/`**. Verify this.
-- **`--global` flag** — if present, write the plugin userConfig to
-  `~/.claude/settings.json`. Otherwise (default), write to
-  `<project>/.claude/settings.json`.
+- **`--project` flag** — if present, write the plugin userConfig to
+  `<project>/.claude/settings.json`. Otherwise (default), write to
+  `~/.claude/settings.json`.
+
+  The default is user scope on purpose: Claude Code resolves `pluginConfigs`
+  from user, flag, and policy settings only — **never from project settings**.
+  A `tauri_app_dir` written to `<project>/.claude/settings.json` is silently
+  ignored, and the unresolved value reaches the MCP server as an empty string.
+  Only pass `--project` if you know your harness reads that scope.
+- **`--global` flag** — accepted for backwards compatibility. It selects
+  `~/.claude/settings.json`, which is now the default, so it is a no-op.
 - **`--prod-safe` flag** — if present, use the feature-gated variant (see the
   "Production-safe variant" section below) so MCP never compiles into release
   builds. Otherwise (default), use the simple setup in the "High-level plan"
@@ -103,8 +111,13 @@ ask once to disambiguate, then continue all the way through.
 
 9. **Write the plugin's `tauri_app_dir` userConfig directly** — do not send the
    user to the `/plugin` UI, and do not ask where to save it. Decide from args:
-   - `--global` flag present → `~/.claude/settings.json`
-   - otherwise → `<project>/.claude/settings.json`
+   - `--project` flag present → `<project>/.claude/settings.json`
+   - otherwise → `~/.claude/settings.json`
+
+   Project scope is not the default because Claude Code does not read
+   `pluginConfigs` from it (see the Arguments section). If the user passed
+   `--project`, write it there as asked but warn them that the value may never
+   reach the server.
 
    Merge the following under the chosen file, preserving every other key:
    ```json
@@ -132,6 +145,12 @@ ask once to disambiguate, then continue all the way through.
 10. **Tell the user to restart Claude Code.** That's the only remaining manual
     step. After restart, the MCP server picks up the config and `/mcp` shows
     `tauri-mcp` as connected.
+
+    If the tools misbehave afterwards, the server logs one line at startup —
+    `[tauri-mcp] Project root: <path> (from <source>)` — naming both the
+    directory it settled on and which input produced it. A `from cwd` when you
+    expected `from TAURI_APP_DIR`, or an "is set but EMPTY" warning above it,
+    means the userConfig never resolved; move it to `~/.claude/settings.json`.
 
 ## Safety rules
 

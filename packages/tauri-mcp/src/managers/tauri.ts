@@ -312,8 +312,12 @@ export class TauriManager {
       return this.detectedUnixSocketPath;
     }
 
-    // Fallback: calculate path — pass projectRoot as hash input to match Rust side
-    return TauriManager.getUnixSocketPath(socketDir, this.projectRoot);
+    // Fallback: calculate path. socketDir is the absolute appDir, which is
+    // exactly what we hand the Rust plugin as TAURI_MCP_PROJECT_ROOT and what it
+    // hashes — so let getUnixSocketPath hash it too. (Passing the raw
+    // this.projectRoot here used to hash a possibly-relative string against
+    // Rust's always-absolute one, silently diverging on the long-path branch.)
+    return TauriManager.getUnixSocketPath(socketDir);
   }
 
   /**
@@ -638,6 +642,30 @@ export class TauriManager {
       this.vitePort = this.detectExistingPort() ?? 1420;
       warnings.push('No beforeDevCommand found in tauri.conf.json. Using default port configuration.');
       console.error(`[tauri-mcp] No beforeDevCommand. Using default port ${this.vitePort}`);
+    }
+
+    // Run consumer app:prepare if the script exists and not opted out
+    if (process.env.TAURI_MCP_SKIP_PREPARE !== '1') {
+      try {
+        const pkgJsonPath = path.join(this.appConfig.appDir, 'package.json');
+        const pkgJsonRaw = fs.readFileSync(pkgJsonPath, 'utf8');
+        const pkgJson = JSON.parse(pkgJsonRaw);
+        if (pkgJson?.scripts?.['app:prepare']) {
+          console.error('[tauri-mcp] Running app:prepare before launch...');
+          const prepareResult = spawnSync('pnpm', ['run', 'app:prepare'], {
+            cwd: this.appConfig.appDir,
+            stdio: 'inherit',
+            shell: process.platform === 'win32',
+          });
+          if (prepareResult.status !== 0) {
+            console.error(`[tauri-mcp] WARNING: app:prepare exited with status ${prepareResult.status} — continuing launch anyway`);
+          } else {
+            console.error('[tauri-mcp] app:prepare completed successfully');
+          }
+        }
+      } catch (e) {
+        console.error(`[tauri-mcp] WARNING: could not run app:prepare (${(e as Error).message}) — continuing launch anyway`);
+      }
     }
 
     console.error(`[tauri-mcp] Launching app with Vite port ${this.vitePort}...`);

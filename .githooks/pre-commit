@@ -2,8 +2,11 @@
 
 # Pre-commit hook: ensure dist/ stays in sync with TypeScript sources
 
-# Fast path: skip if no .ts files under packages/*/src/ are staged
-STAGED_TS=$(git diff --cached --name-only --diff-filter=ACMR -- 'packages/*/src/**/*.ts')
+# Fast path: skip if no .ts files under packages/*/src/ are staged.
+# The `:(glob)` magic is required: without it `**/` demands a literal
+# intermediate slash, so a change to a file sitting directly in src/ (e.g.
+# src/index.ts) matches nothing and the rebuild is silently skipped.
+STAGED_TS=$(git diff --cached --name-only --diff-filter=ACMR -- ':(glob)packages/*/src/**/*.ts')
 if [ -z "$STAGED_TS" ]; then
   exit 0
 fi
@@ -12,10 +15,10 @@ echo "[pre-commit] TypeScript source changes detected, rebuilding..."
 pnpm build
 
 # Check for modified tracked dist files
-MODIFIED_DIST=$(git diff --name-only -- 'packages/*/dist/**')
+MODIFIED_DIST=$(git diff --name-only -- ':(glob)packages/*/dist/**')
 
 # Check for new untracked dist files
-UNTRACKED_DIST=$(git ls-files --others --exclude-standard -- 'packages/*/dist/**')
+UNTRACKED_DIST=$(git ls-files --others --exclude-standard -- ':(glob)packages/*/dist/**')
 
 if [ -n "$MODIFIED_DIST" ] || [ -n "$UNTRACKED_DIST" ]; then
   echo "[pre-commit] Auto-staging updated dist files..."
