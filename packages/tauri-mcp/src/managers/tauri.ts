@@ -312,8 +312,12 @@ export class TauriManager {
       return this.detectedUnixSocketPath;
     }
 
-    // Fallback: calculate path — pass projectRoot as hash input to match Rust side
-    return TauriManager.getUnixSocketPath(socketDir, this.projectRoot);
+    // Fallback: calculate path. socketDir is the absolute appDir, which is
+    // exactly what we hand the Rust plugin as TAURI_MCP_PROJECT_ROOT and what it
+    // hashes — so let getUnixSocketPath hash it too. (Passing the raw
+    // this.projectRoot here used to hash a possibly-relative string against
+    // Rust's always-absolute one, silently diverging on the long-path branch.)
+    return TauriManager.getUnixSocketPath(socketDir);
   }
 
   /**

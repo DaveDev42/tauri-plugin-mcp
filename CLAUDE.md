@@ -26,7 +26,13 @@ cargo check
 with all deps (`@modelcontextprotocol/sdk`, `zod`) inlined. Claude Code plugin
 installs don't run `npm install`, so the MCP server must work without any
 `node_modules` at runtime — without this, installs on fresh machines silently
-fail to register. The pre-commit hook rebuilds and stages `dist/` automatically.
+fail to register. The pre-commit hook (`.githooks/pre-commit`) rebuilds and
+stages `dist/` automatically; `pnpm install` wires it up by pointing
+`core.hooksPath` at `.githooks` (see `scripts/setup-hooks.mjs`, run from
+`prepare`). If you commit with `dist/` stale anyway, CI's dist-sync check
+fails — run `pnpm build` and commit the result. On Windows, `.gitattributes`
+pins `eol=lf` so the checked-out sources (embedded verbatim in the sourcemap)
+match a Linux CI build.
 
 **`tauri-plugin-mcp-api` is NOT bundled** — it ships to user apps via `pnpm add`,
 so externals must stay external.
