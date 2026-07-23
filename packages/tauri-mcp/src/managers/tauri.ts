@@ -644,6 +644,30 @@ export class TauriManager {
       console.error(`[tauri-mcp] No beforeDevCommand. Using default port ${this.vitePort}`);
     }
 
+    // Run consumer app:prepare if the script exists and not opted out
+    if (process.env.TAURI_MCP_SKIP_PREPARE !== '1') {
+      try {
+        const pkgJsonPath = path.join(this.appConfig.appDir, 'package.json');
+        const pkgJsonRaw = fs.readFileSync(pkgJsonPath, 'utf8');
+        const pkgJson = JSON.parse(pkgJsonRaw);
+        if (pkgJson?.scripts?.['app:prepare']) {
+          console.error('[tauri-mcp] Running app:prepare before launch...');
+          const prepareResult = spawnSync('pnpm', ['run', 'app:prepare'], {
+            cwd: this.appConfig.appDir,
+            stdio: 'inherit',
+            shell: process.platform === 'win32',
+          });
+          if (prepareResult.status !== 0) {
+            console.error(`[tauri-mcp] WARNING: app:prepare exited with status ${prepareResult.status} — continuing launch anyway`);
+          } else {
+            console.error('[tauri-mcp] app:prepare completed successfully');
+          }
+        }
+      } catch (e) {
+        console.error(`[tauri-mcp] WARNING: could not run app:prepare (${(e as Error).message}) — continuing launch anyway`);
+      }
+    }
+
     console.error(`[tauri-mcp] Launching app with Vite port ${this.vitePort}...`);
 
     // Build tauri dev command with optional features

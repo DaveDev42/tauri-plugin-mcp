@@ -18302,6 +18302,28 @@ var TauriManager = class _TauriManager {
       warnings.push("No beforeDevCommand found in tauri.conf.json. Using default port configuration.");
       console.error(`[tauri-mcp] No beforeDevCommand. Using default port ${this.vitePort}`);
     }
+    if (process.env.TAURI_MCP_SKIP_PREPARE !== "1") {
+      try {
+        const pkgJsonPath = path2.join(this.appConfig.appDir, "package.json");
+        const pkgJsonRaw = fs2.readFileSync(pkgJsonPath, "utf8");
+        const pkgJson = JSON.parse(pkgJsonRaw);
+        if (pkgJson?.scripts?.["app:prepare"]) {
+          console.error("[tauri-mcp] Running app:prepare before launch...");
+          const prepareResult = spawnSync("pnpm", ["run", "app:prepare"], {
+            cwd: this.appConfig.appDir,
+            stdio: "inherit",
+            shell: process.platform === "win32"
+          });
+          if (prepareResult.status !== 0) {
+            console.error(`[tauri-mcp] WARNING: app:prepare exited with status ${prepareResult.status} \u2014 continuing launch anyway`);
+          } else {
+            console.error("[tauri-mcp] app:prepare completed successfully");
+          }
+        }
+      } catch (e) {
+        console.error(`[tauri-mcp] WARNING: could not run app:prepare (${e.message}) \u2014 continuing launch anyway`);
+      }
+    }
     console.error(`[tauri-mcp] Launching app with Vite port ${this.vitePort}...`);
     const tauriArgs = ["tauri", "dev"];
     if (features.length > 0) {
