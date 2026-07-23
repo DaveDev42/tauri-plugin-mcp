@@ -2980,7 +2980,7 @@ var require_compile = __commonJS({
       const schOrFunc = root.refs[ref];
       if (schOrFunc)
         return schOrFunc;
-      let _sch = resolve2.call(this, root, ref);
+      let _sch = resolve3.call(this, root, ref);
       if (_sch === void 0) {
         const schema = (_a = root.localRefs) === null || _a === void 0 ? void 0 : _a[ref];
         const { schemaId } = this.opts;
@@ -3007,7 +3007,7 @@ var require_compile = __commonJS({
     function sameSchemaEnv(s1, s2) {
       return s1.schema === s2.schema && s1.root === s2.root && s1.baseId === s2.baseId;
     }
-    function resolve2(root, ref) {
+    function resolve3(root, ref) {
       let sch;
       while (typeof (sch = this.refs[ref]) == "string")
         ref = sch;
@@ -3222,8 +3222,8 @@ var require_utils = __commonJS({
       }
       return ind;
     }
-    function removeDotSegments(path4) {
-      let input = path4;
+    function removeDotSegments(path5) {
+      let input = path5;
       const output = [];
       let nextSlash = -1;
       let len = 0;
@@ -3422,8 +3422,8 @@ var require_schemes = __commonJS({
         wsComponent.secure = void 0;
       }
       if (wsComponent.resourceName) {
-        const [path4, query] = wsComponent.resourceName.split("?");
-        wsComponent.path = path4 && path4 !== "/" ? path4 : void 0;
+        const [path5, query] = wsComponent.resourceName.split("?");
+        wsComponent.path = path5 && path5 !== "/" ? path5 : void 0;
         wsComponent.query = query;
         wsComponent.resourceName = void 0;
       }
@@ -3582,55 +3582,55 @@ var require_fast_uri = __commonJS({
       }
       return uri;
     }
-    function resolve2(baseURI, relativeURI, options) {
+    function resolve3(baseURI, relativeURI, options) {
       const schemelessOptions = options ? Object.assign({ scheme: "null" }, options) : { scheme: "null" };
       const resolved = resolveComponent(parse3(baseURI, schemelessOptions), parse3(relativeURI, schemelessOptions), schemelessOptions, true);
       schemelessOptions.skipEscape = true;
       return serialize(resolved, schemelessOptions);
     }
-    function resolveComponent(base, relative, options, skipNormalization) {
+    function resolveComponent(base, relative2, options, skipNormalization) {
       const target = {};
       if (!skipNormalization) {
         base = parse3(serialize(base, options), options);
-        relative = parse3(serialize(relative, options), options);
+        relative2 = parse3(serialize(relative2, options), options);
       }
       options = options || {};
-      if (!options.tolerant && relative.scheme) {
-        target.scheme = relative.scheme;
-        target.userinfo = relative.userinfo;
-        target.host = relative.host;
-        target.port = relative.port;
-        target.path = removeDotSegments(relative.path || "");
-        target.query = relative.query;
+      if (!options.tolerant && relative2.scheme) {
+        target.scheme = relative2.scheme;
+        target.userinfo = relative2.userinfo;
+        target.host = relative2.host;
+        target.port = relative2.port;
+        target.path = removeDotSegments(relative2.path || "");
+        target.query = relative2.query;
       } else {
-        if (relative.userinfo !== void 0 || relative.host !== void 0 || relative.port !== void 0) {
-          target.userinfo = relative.userinfo;
-          target.host = relative.host;
-          target.port = relative.port;
-          target.path = removeDotSegments(relative.path || "");
-          target.query = relative.query;
+        if (relative2.userinfo !== void 0 || relative2.host !== void 0 || relative2.port !== void 0) {
+          target.userinfo = relative2.userinfo;
+          target.host = relative2.host;
+          target.port = relative2.port;
+          target.path = removeDotSegments(relative2.path || "");
+          target.query = relative2.query;
         } else {
-          if (!relative.path) {
+          if (!relative2.path) {
             target.path = base.path;
-            if (relative.query !== void 0) {
-              target.query = relative.query;
+            if (relative2.query !== void 0) {
+              target.query = relative2.query;
             } else {
               target.query = base.query;
             }
           } else {
-            if (relative.path[0] === "/") {
-              target.path = removeDotSegments(relative.path);
+            if (relative2.path[0] === "/") {
+              target.path = removeDotSegments(relative2.path);
             } else {
               if ((base.userinfo !== void 0 || base.host !== void 0 || base.port !== void 0) && !base.path) {
-                target.path = "/" + relative.path;
+                target.path = "/" + relative2.path;
               } else if (!base.path) {
-                target.path = relative.path;
+                target.path = relative2.path;
               } else {
-                target.path = base.path.slice(0, base.path.lastIndexOf("/") + 1) + relative.path;
+                target.path = base.path.slice(0, base.path.lastIndexOf("/") + 1) + relative2.path;
               }
               target.path = removeDotSegments(target.path);
             }
-            target.query = relative.query;
+            target.query = relative2.query;
           }
           target.userinfo = base.userinfo;
           target.host = base.host;
@@ -3638,7 +3638,7 @@ var require_fast_uri = __commonJS({
         }
         target.scheme = base.scheme;
       }
-      target.fragment = relative.fragment;
+      target.fragment = relative2.fragment;
       return target;
     }
     function equal(uriA, uriB, options) {
@@ -3809,7 +3809,7 @@ var require_fast_uri = __commonJS({
     var fastUri = {
       SCHEMES,
       normalize,
-      resolve: resolve2,
+      resolve: resolve3,
       resolveComponent,
       equal,
       serialize,
@@ -6776,12 +6776,12 @@ var require_dist = __commonJS({
         throw new Error(`Unknown format "${name}"`);
       return f;
     };
-    function addFormats(ajv, list, fs3, exportName) {
+    function addFormats(ajv, list, fs4, exportName) {
       var _a;
       var _b;
       (_a = (_b = ajv.opts.code).formats) !== null && _a !== void 0 ? _a : _b.formats = (0, codegen_1._)`require("ajv-formats/dist/formats").${exportName}`;
       for (const f of list)
-        ajv.addFormat(f, fs3[f]);
+        ajv.addFormat(f, fs4[f]);
     }
     module.exports = exports = formatsPlugin;
     Object.defineProperty(exports, "__esModule", { value: true });
@@ -6790,7 +6790,104 @@ var require_dist = __commonJS({
 });
 
 // src/index.ts
-import * as path3 from "path";
+import * as path4 from "path";
+
+// src/resolve-project-root.ts
+import * as fs from "fs";
+import * as path from "path";
+var SKIP_DIRS = /* @__PURE__ */ new Set([
+  "node_modules",
+  "target",
+  "dist",
+  "build",
+  "out",
+  "coverage",
+  "vendor",
+  ".git",
+  ".next",
+  ".turbo",
+  ".venv",
+  ".cache"
+]);
+var MAX_DEPTH = 4;
+var MAX_CANDIDATES = 10;
+function isTauriApp(dir) {
+  return fs.existsSync(path.join(dir, "src-tauri", "Cargo.toml"));
+}
+function findTauriApps(root, maxDepth = MAX_DEPTH) {
+  const found = [];
+  const walk = (dir, depth) => {
+    if (found.length >= MAX_CANDIDATES) return;
+    let entries;
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    if (isTauriApp(dir)) {
+      found.push(dir);
+      return;
+    }
+    if (depth >= maxDepth) return;
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      if (entry.name.startsWith(".") || SKIP_DIRS.has(entry.name)) continue;
+      walk(path.join(dir, entry.name), depth + 1);
+    }
+  };
+  walk(root, 0);
+  return found;
+}
+function resolveProjectRoot(env = process.env, cwd = process.cwd()) {
+  const diagnostics = [];
+  for (const key of ["TAURI_APP_DIR", "TAURI_PROJECT_ROOT"]) {
+    const raw = env[key];
+    if (raw === void 0) continue;
+    const value = raw.trim();
+    if (value === "") {
+      diagnostics.push(
+        `${key} is set but EMPTY \u2014 the plugin's \`tauri_app_dir\` userConfig did not resolve.
+  Claude Code reads \`pluginConfigs\` from user/flag/policy settings only, so a value in
+  <project>/.claude/settings.json is ignored. Move it to ~/.claude/settings.json and restart.
+  Continuing with auto-discovery.`
+      );
+      continue;
+    }
+    const resolved = path.resolve(cwd, value);
+    if (!isTauriApp(resolved)) {
+      diagnostics.push(
+        `${key}="${value}" resolved to ${resolved}, which has no src-tauri/Cargo.toml.
+  Honoring it anyway because explicit configuration wins, but launching will fail
+  until the path points at the directory that contains src-tauri/.`
+      );
+    }
+    return { projectRoot: resolved, source: key, diagnostics };
+  }
+  if (isTauriApp(cwd)) {
+    return { projectRoot: cwd, source: "cwd", diagnostics };
+  }
+  const candidates = findTauriApps(cwd);
+  if (candidates.length === 1) {
+    diagnostics.push(
+      `No Tauri app in ${cwd}; auto-discovered the only one at ${candidates[0]}.
+  Set the plugin's \`tauri_app_dir\` userConfig to "${path.relative(cwd, candidates[0]) || "."}" to pin it.`
+    );
+    return { projectRoot: candidates[0], source: "auto-discovered", diagnostics };
+  }
+  if (candidates.length > 1) {
+    diagnostics.push(
+      `Found ${candidates.length} Tauri apps under ${cwd} and will not guess between them:
+` + candidates.map((c) => `    - ${path.relative(cwd, c) || "."}`).join("\n") + `
+  Set the plugin's \`tauri_app_dir\` userConfig (in ~/.claude/settings.json) to one of them.`
+    );
+  } else {
+    diagnostics.push(
+      `No Tauri app (src-tauri/Cargo.toml) found in or below ${cwd} within ${MAX_DEPTH} levels.
+  Set the plugin's \`tauri_app_dir\` userConfig to the directory that contains src-tauri/.`
+    );
+  }
+  return { projectRoot: cwd, source: "cwd", diagnostics };
+}
 
 // ../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/external.js
 var external_exports = {};
@@ -7270,8 +7367,8 @@ function getErrorMap() {
 
 // ../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/helpers/parseUtil.js
 var makeIssue = (params) => {
-  const { data, path: path4, errorMaps, issueData } = params;
-  const fullPath = [...path4, ...issueData.path || []];
+  const { data, path: path5, errorMaps, issueData } = params;
+  const fullPath = [...path5, ...issueData.path || []];
   const fullIssue = {
     ...issueData,
     path: fullPath
@@ -7387,11 +7484,11 @@ var errorUtil;
 
 // ../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/types.js
 var ParseInputLazyPath = class {
-  constructor(parent, value, path4, key) {
+  constructor(parent, value, path5, key) {
     this._cachedPath = [];
     this.parent = parent;
     this.data = value;
-    this._path = path4;
+    this._path = path5;
     this._key = key;
   }
   get path() {
@@ -11028,10 +11125,10 @@ function assignProp(target, prop, value) {
     configurable: true
   });
 }
-function getElementAtPath(obj, path4) {
-  if (!path4)
+function getElementAtPath(obj, path5) {
+  if (!path5)
     return obj;
-  return path4.reduce((acc, key) => acc?.[key], obj);
+  return path5.reduce((acc, key) => acc?.[key], obj);
 }
 function promiseAllObject(promisesObj) {
   const keys = Object.keys(promisesObj);
@@ -11351,11 +11448,11 @@ function aborted(x, startIndex = 0) {
   }
   return false;
 }
-function prefixIssues(path4, issues) {
+function prefixIssues(path5, issues) {
   return issues.map((iss) => {
     var _a;
     (_a = iss).path ?? (_a.path = []);
-    iss.path.unshift(path4);
+    iss.path.unshift(path5);
     return iss;
   });
 }
@@ -16642,7 +16739,7 @@ var Protocol = class {
           return;
         }
         const pollInterval = task2.pollInterval ?? this._options?.defaultTaskPollInterval ?? 1e3;
-        await new Promise((resolve2) => setTimeout(resolve2, pollInterval));
+        await new Promise((resolve3) => setTimeout(resolve3, pollInterval));
         options?.signal?.throwIfAborted();
       }
     } catch (error2) {
@@ -16659,7 +16756,7 @@ var Protocol = class {
    */
   request(request, resultSchema, options) {
     const { relatedRequestId, resumptionToken, onresumptiontoken, task, relatedTask } = options ?? {};
-    return new Promise((resolve2, reject) => {
+    return new Promise((resolve3, reject) => {
       const earlyReject = (error2) => {
         reject(error2);
       };
@@ -16737,7 +16834,7 @@ var Protocol = class {
           if (!parseResult.success) {
             reject(parseResult.error);
           } else {
-            resolve2(parseResult.data);
+            resolve3(parseResult.data);
           }
         } catch (error2) {
           reject(error2);
@@ -16998,12 +17095,12 @@ var Protocol = class {
       }
     } catch {
     }
-    return new Promise((resolve2, reject) => {
+    return new Promise((resolve3, reject) => {
       if (signal.aborted) {
         reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
         return;
       }
-      const timeoutId = setTimeout(resolve2, interval);
+      const timeoutId = setTimeout(resolve3, interval);
       signal.addEventListener("abort", () => {
         clearTimeout(timeoutId);
         reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
@@ -17732,12 +17829,12 @@ var StdioServerTransport = class {
     this.onclose?.();
   }
   send(message) {
-    return new Promise((resolve2) => {
+    return new Promise((resolve3) => {
       const json = serializeMessage(message);
       if (this._stdout.write(json)) {
-        resolve2();
+        resolve3();
       } else {
-        this._stdout.once("drain", resolve2);
+        this._stdout.once("drain", resolve3);
       }
     });
   }
@@ -17745,8 +17842,8 @@ var StdioServerTransport = class {
 
 // src/managers/tauri.ts
 import { spawn, spawnSync, execSync } from "child_process";
-import * as fs from "fs";
-import * as path from "path";
+import * as fs2 from "fs";
+import * as path2 from "path";
 import * as net from "net";
 var SOCKET_FILE_NAME = ".tauri-mcp.sock";
 var TauriManager = class _TauriManager {
@@ -17760,17 +17857,17 @@ var TauriManager = class _TauriManager {
   detectedUnixSocketPath = null;
   rustRebuildEvents = [];
   launchedAt = null;
-  constructor(projectRoot2) {
-    this.projectRoot = projectRoot2 ?? process.env.TAURI_PROJECT_ROOT ?? process.cwd();
+  constructor(projectRoot) {
+    this.projectRoot = projectRoot ?? process.env.TAURI_PROJECT_ROOT ?? process.cwd();
     this.appConfig = this.detectTauriApp();
     this.vitePort = 0;
   }
   detectExistingPort() {
     if (!this.appConfig) return null;
-    const tauriConfPath = path.join(this.appConfig.appDir, "src-tauri", "tauri.conf.json");
-    if (fs.existsSync(tauriConfPath)) {
+    const tauriConfPath = path2.join(this.appConfig.appDir, "src-tauri", "tauri.conf.json");
+    if (fs2.existsSync(tauriConfPath)) {
       try {
-        const content = fs.readFileSync(tauriConfPath, "utf-8");
+        const content = fs2.readFileSync(tauriConfPath, "utf-8");
         const config2 = JSON.parse(content);
         const devUrl = config2?.build?.devUrl;
         if (devUrl) {
@@ -17787,7 +17884,7 @@ var TauriManager = class _TauriManager {
     return null;
   }
   generatePort(projectPath) {
-    const normalizedPath = path.resolve(projectPath);
+    const normalizedPath = path2.resolve(projectPath);
     let hash = 0;
     for (let i = 0; i < normalizedPath.length; i++) {
       const char = normalizedPath.charCodeAt(i);
@@ -17800,12 +17897,12 @@ var TauriManager = class _TauriManager {
    * Check if a port is available for use
    */
   isPortAvailable(port) {
-    return new Promise((resolve2) => {
+    return new Promise((resolve3) => {
       const server2 = net.createServer();
-      server2.once("error", () => resolve2(false));
+      server2.once("error", () => resolve3(false));
       server2.once("listening", () => {
         server2.close();
-        resolve2(true);
+        resolve3(true);
       });
       server2.listen(port, "127.0.0.1");
     });
@@ -17830,9 +17927,9 @@ var TauriManager = class _TauriManager {
    */
   readTauriConfig() {
     if (!this.appConfig) return null;
-    const confPath = path.join(this.appConfig.appDir, "src-tauri", "tauri.conf.json");
+    const confPath = path2.join(this.appConfig.appDir, "src-tauri", "tauri.conf.json");
     try {
-      const content = fs.readFileSync(confPath, "utf-8");
+      const content = fs2.readFileSync(confPath, "utf-8");
       const config2 = JSON.parse(content);
       return {
         beforeDevCommand: config2?.build?.beforeDevCommand,
@@ -17862,9 +17959,9 @@ var TauriManager = class _TauriManager {
    */
   detectBundlerFromPackageJson() {
     if (!this.appConfig) return "unknown";
-    const pkgPath = path.join(this.appConfig.appDir, "package.json");
+    const pkgPath = path2.join(this.appConfig.appDir, "package.json");
     try {
-      const content = fs.readFileSync(pkgPath, "utf-8");
+      const content = fs2.readFileSync(pkgPath, "utf-8");
       const pkg = JSON.parse(content);
       const devScript = pkg.scripts?.dev || "";
       if (devScript.includes("vite")) return "vite";
@@ -17888,8 +17985,8 @@ var TauriManager = class _TauriManager {
     return `${command} --port ${port}`;
   }
   detectTauriApp() {
-    const cargoPath = path.join(this.projectRoot, "src-tauri", "Cargo.toml");
-    if (fs.existsSync(cargoPath)) {
+    const cargoPath = path2.join(this.projectRoot, "src-tauri", "Cargo.toml");
+    if (fs2.existsSync(cargoPath)) {
       try {
         const config2 = this.parseCargoToml(cargoPath);
         if (config2) {
@@ -17903,7 +18000,7 @@ var TauriManager = class _TauriManager {
     return null;
   }
   parseCargoToml(cargoPath) {
-    const content = fs.readFileSync(cargoPath, "utf-8");
+    const content = fs2.readFileSync(cargoPath, "utf-8");
     let packageName = "";
     let binaryName = "";
     const packageMatch = content.match(/\[package\][\s\S]*?name\s*=\s*"([^"]+)"/);
@@ -17919,8 +18016,8 @@ var TauriManager = class _TauriManager {
     if (!packageName) {
       return null;
     }
-    const srcTauriDir = path.dirname(cargoPath);
-    const appDir = path.dirname(srcTauriDir);
+    const srcTauriDir = path2.dirname(cargoPath);
+    const appDir = path2.dirname(srcTauriDir);
     return {
       appDir,
       binaryName,
@@ -17933,7 +18030,7 @@ var TauriManager = class _TauriManager {
    * On Unix, falls back to /tmp/ with hash if path exceeds SUN_LEN (104 bytes)
    */
   getSocketPath() {
-    const socketDir = path.resolve(this.appConfig?.appDir ?? this.projectRoot);
+    const socketDir = path2.resolve(this.appConfig?.appDir ?? this.projectRoot);
     if (process.platform === "win32") {
       if (this.detectedPipePath) {
         return this.detectedPipePath;
@@ -17948,7 +18045,7 @@ var TauriManager = class _TauriManager {
     if (this.detectedUnixSocketPath) {
       return this.detectedUnixSocketPath;
     }
-    return _TauriManager.getUnixSocketPath(socketDir, this.projectRoot);
+    return _TauriManager.getUnixSocketPath(socketDir);
   }
   /**
    * Get Unix socket path, falling back to /tmp/ if path is too long for SUN_LEN
@@ -17956,7 +18053,7 @@ var TauriManager = class _TauriManager {
    */
   static getUnixSocketPath(socketDir, hashInput) {
     const MAX_SOCKET_PATH_LEN = 104;
-    const directPath = path.join(socketDir, SOCKET_FILE_NAME);
+    const directPath = path2.join(socketDir, SOCKET_FILE_NAME);
     if (Buffer.byteLength(directPath, "utf-8") <= MAX_SOCKET_PATH_LEN) {
       return directPath;
     }
@@ -17986,7 +18083,7 @@ var TauriManager = class _TauriManager {
    */
   calculateWindowsPipePath() {
     try {
-      const pipes = fs.readdirSync("//./pipe/").filter((f) => f.startsWith("tauri-mcp-"));
+      const pipes = fs2.readdirSync("//./pipe/").filter((f) => f.startsWith("tauri-mcp-"));
       if (pipes.length > 0) {
         return `//./pipe/${pipes[0]}`;
       }
@@ -18026,27 +18123,27 @@ var TauriManager = class _TauriManager {
       return false;
     }
     const socketPath = this.getSocketPath();
-    return fs.existsSync(socketPath);
+    return fs2.existsSync(socketPath);
   }
   /**
    * Probe whether a socket/pipe is connectable (works on both Unix and Windows).
    */
   probeSocket(socketPath) {
-    return new Promise((resolve2) => {
+    return new Promise((resolve3) => {
       let client;
       const timeout = setTimeout(() => {
         client.removeAllListeners();
         client.destroy();
-        resolve2(false);
+        resolve3(false);
       }, 1e3);
       client = net.createConnection(socketPath, () => {
         clearTimeout(timeout);
         client.destroy();
-        resolve2(true);
+        resolve3(true);
       });
       client.on("error", () => {
         clearTimeout(timeout);
-        resolve2(false);
+        resolve3(false);
       });
     });
   }
@@ -18059,21 +18156,21 @@ var TauriManager = class _TauriManager {
       return false;
     }
     this.detectedPipePath = pipePath;
-    return new Promise((resolve2) => {
+    return new Promise((resolve3) => {
       let client;
       const timeout = setTimeout(() => {
         client.removeAllListeners();
         client.destroy();
-        resolve2(false);
+        resolve3(false);
       }, 1e3);
       client = net.createConnection(pipePath, () => {
         clearTimeout(timeout);
         client.destroy();
-        resolve2(true);
+        resolve3(true);
       });
       client.on("error", () => {
         clearTimeout(timeout);
-        resolve2(false);
+        resolve3(false);
       });
     });
   }
@@ -18082,9 +18179,9 @@ var TauriManager = class _TauriManager {
    */
   hasBuildCache() {
     if (!this.appConfig) return false;
-    const targetDir = path.join(this.appConfig.appDir, "src-tauri", "target", "debug");
-    const binaryPath = process.platform === "win32" ? path.join(targetDir, `${this.appConfig.binaryName}.exe`) : path.join(targetDir, this.appConfig.binaryName);
-    return fs.existsSync(binaryPath);
+    const targetDir = path2.join(this.appConfig.appDir, "src-tauri", "target", "debug");
+    const binaryPath = process.platform === "win32" ? path2.join(targetDir, `${this.appConfig.binaryName}.exe`) : path2.join(targetDir, this.appConfig.binaryName);
+    return fs2.existsSync(binaryPath);
   }
   /**
    * Check if an external app instance is already running and responding
@@ -18093,7 +18190,7 @@ var TauriManager = class _TauriManager {
   async checkExternalAppRunning() {
     if (process.platform !== "win32") {
       const socketPath = this.getSocketPath();
-      if (!fs.existsSync(socketPath)) {
+      if (!fs2.existsSync(socketPath)) {
         return false;
       }
     }
@@ -18160,8 +18257,8 @@ var TauriManager = class _TauriManager {
     this.detectedUnixSocketPath = null;
     if (process.platform !== "win32") {
       const socketPath = this.getSocketPath();
-      if (fs.existsSync(socketPath)) {
-        fs.unlinkSync(socketPath);
+      if (fs2.existsSync(socketPath)) {
+        fs2.unlinkSync(socketPath);
       }
     }
     const tauriConfig = this.readTauriConfig();
@@ -18205,6 +18302,28 @@ var TauriManager = class _TauriManager {
       warnings.push("No beforeDevCommand found in tauri.conf.json. Using default port configuration.");
       console.error(`[tauri-mcp] No beforeDevCommand. Using default port ${this.vitePort}`);
     }
+    if (process.env.TAURI_MCP_SKIP_PREPARE !== "1") {
+      try {
+        const pkgJsonPath = path2.join(this.appConfig.appDir, "package.json");
+        const pkgJsonRaw = fs2.readFileSync(pkgJsonPath, "utf8");
+        const pkgJson = JSON.parse(pkgJsonRaw);
+        if (pkgJson?.scripts?.["app:prepare"]) {
+          console.error("[tauri-mcp] Running app:prepare before launch...");
+          const prepareResult = spawnSync("pnpm", ["run", "app:prepare"], {
+            cwd: this.appConfig.appDir,
+            stdio: "inherit",
+            shell: process.platform === "win32"
+          });
+          if (prepareResult.status !== 0) {
+            console.error(`[tauri-mcp] WARNING: app:prepare exited with status ${prepareResult.status} \u2014 continuing launch anyway`);
+          } else {
+            console.error("[tauri-mcp] app:prepare completed successfully");
+          }
+        }
+      } catch (e) {
+        console.error(`[tauri-mcp] WARNING: could not run app:prepare (${e.message}) \u2014 continuing launch anyway`);
+      }
+    }
     console.error(`[tauri-mcp] Launching app with Vite port ${this.vitePort}...`);
     const tauriArgs = ["tauri", "dev"];
     if (features.length > 0) {
@@ -18221,7 +18340,7 @@ var TauriManager = class _TauriManager {
       env: {
         ...process.env,
         // Use absolute appDir as project root for Rust plugin - this is where socket will be created
-        TAURI_MCP_PROJECT_ROOT: path.resolve(this.appConfig.appDir),
+        TAURI_MCP_PROJECT_ROOT: path2.resolve(this.appConfig.appDir),
         TAURI_MCP_DEVTOOLS: devtools ? "1" : "",
         // Pass window prefix for worktree identification
         ...process.env.TAURI_MCP_WINDOW_PREFIX ? { TAURI_MCP_WINDOW_PREFIX: process.env.TAURI_MCP_WINDOW_PREFIX } : {},
@@ -18340,7 +18459,7 @@ ${logs}`);
    */
   async verifyAppReady() {
     const socketPath = this.getSocketPath();
-    return new Promise((resolve2) => {
+    return new Promise((resolve3) => {
       const client = net.createConnection(socketPath, () => {
         const request = {
           jsonrpc: "2.0",
@@ -18354,7 +18473,7 @@ ${logs}`);
       const timeout = setTimeout(() => {
         client.removeAllListeners();
         client.destroy();
-        resolve2(false);
+        resolve3(false);
       }, 2e3);
       client.on("data", (chunk) => {
         data += chunk.toString();
@@ -18363,23 +18482,23 @@ ${logs}`);
           clearTimeout(timeout);
           client.end();
           if (response.result?.pong === true) {
-            resolve2(true);
+            resolve3(true);
           } else if (response.error) {
-            resolve2(false);
+            resolve3(false);
           } else {
-            resolve2(false);
+            resolve3(false);
           }
         } catch {
         }
       });
       client.on("error", () => {
         clearTimeout(timeout);
-        resolve2(false);
+        resolve3(false);
       });
       client.on("close", () => {
         clearTimeout(timeout);
         if (!data) {
-          resolve2(false);
+          resolve3(false);
         }
       });
     });
@@ -18403,7 +18522,7 @@ ${logs}`);
     const proc = this.process;
     try {
       const socketPath = this.getSocketPath();
-      const socketExists = process.platform === "win32" || fs.existsSync(socketPath);
+      const socketExists = process.platform === "win32" || fs2.existsSync(socketPath);
       if (socketExists) {
         await this.sendExitCommand(socketPath);
       }
@@ -18413,7 +18532,7 @@ ${logs}`);
       this.cleanupSocketFile();
       return { message: "App stopped" };
     }
-    return new Promise((resolve2) => {
+    return new Promise((resolve3) => {
       const forceKillTimer = setTimeout(() => {
         if (this.process === proc) {
           try {
@@ -18430,17 +18549,20 @@ ${logs}`);
           this.detectedPipePath = null;
           this.detectedUnixSocketPath = null;
           this.cleanupSocketFile();
-          resolve2({ message: "App force stopped" });
+          resolve3({ message: "App force stopped" });
         }
       }, 5e3);
       proc.on("exit", () => {
         clearTimeout(forceKillTimer);
+        if (process.platform !== "win32") {
+          this.cleanupOrphanProcesses();
+        }
         this.process = null;
         this.launchedAt = null;
         this.detectedPipePath = null;
         this.detectedUnixSocketPath = null;
         this.cleanupSocketFile();
-        resolve2({ message: "App stopped" });
+        resolve3({ message: "App stopped" });
       });
       if (process.platform !== "win32") {
         try {
@@ -18449,9 +18571,8 @@ ${logs}`);
           proc.kill("SIGTERM");
         }
       } else {
-        this.cleanupOrphanProcesses();
         if (proc.pid) {
-          spawn("taskkill", ["/PID", proc.pid.toString(), "/T", "/F"], {
+          spawnSync("taskkill", ["/PID", String(proc.pid), "/T", "/F"], {
             stdio: "ignore",
             shell: true
           });
@@ -18466,9 +18587,9 @@ ${logs}`);
   cleanupSocketFile() {
     if (process.platform !== "win32") {
       const socketPath = this.getSocketPath();
-      if (fs.existsSync(socketPath)) {
+      if (fs2.existsSync(socketPath)) {
         try {
-          fs.unlinkSync(socketPath);
+          fs2.unlinkSync(socketPath);
         } catch {
         }
       }
@@ -18480,7 +18601,7 @@ ${logs}`);
    * AppHandle::exit(0) on the Rust side.
    */
   sendExitCommand(socketPath) {
-    return new Promise((resolve2, reject) => {
+    return new Promise((resolve3, reject) => {
       let client;
       const timeout = setTimeout(() => {
         client.removeAllListeners();
@@ -18499,7 +18620,7 @@ ${logs}`);
       client.on("data", () => {
         clearTimeout(timeout);
         client.end();
-        resolve2();
+        resolve3();
       });
       client.on("error", (err) => {
         clearTimeout(timeout);
@@ -18553,7 +18674,7 @@ ${logs}`);
   findSocketOwnerPid() {
     if (process.platform === "win32") return null;
     const socketPath = this.getSocketPath();
-    if (!fs.existsSync(socketPath)) return null;
+    if (!fs2.existsSync(socketPath)) return null;
     try {
       const output = execSync(`lsof -t "${socketPath}" 2>/dev/null`, { encoding: "utf-8" }).trim();
       if (output) {
@@ -18580,7 +18701,7 @@ ${logs}`);
       const socketPath = this.getSocketPath();
       await this.sendExitCommand(socketPath);
       await this.sleep(500);
-      const socketGone = process.platform === "win32" ? !await this.probeSocket(socketPath) : !fs.existsSync(socketPath);
+      const socketGone = process.platform === "win32" ? !await this.probeSocket(socketPath) : !fs2.existsSync(socketPath);
       if (socketGone) {
         console.error("[tauri-mcp] External app exited gracefully via app_exit");
         return;
@@ -18711,7 +18832,7 @@ ${logs}`);
     return logs;
   }
   sleep(ms) {
-    return new Promise((resolve2) => setTimeout(resolve2, ms));
+    return new Promise((resolve3) => setTimeout(resolve3, ms));
   }
   /**
    * Parse backend logs (stdout/stderr) for errors
@@ -18869,8 +18990,8 @@ ${logs}`);
 
 // src/managers/socket.ts
 import * as net2 from "net";
-import * as fs2 from "fs";
-import * as path2 from "path";
+import * as fs3 from "fs";
+import * as path3 from "path";
 import * as os from "os";
 import * as crypto from "crypto";
 import { execFile } from "child_process";
@@ -18882,8 +19003,8 @@ var SocketManager = class _SocketManager {
   socketPathProvider = null;
   static MAX_RETRIES = 3;
   static RETRY_DELAY_MS = 500;
-  constructor(projectRoot2) {
-    this.projectRoot = projectRoot2 ?? process.env.TAURI_PROJECT_ROOT ?? process.cwd();
+  constructor(projectRoot) {
+    this.projectRoot = projectRoot ?? process.env.TAURI_PROJECT_ROOT ?? process.cwd();
   }
   /**
    * Set the socket path provider function.
@@ -18909,7 +19030,7 @@ var SocketManager = class _SocketManager {
       return this.socketPathProvider !== null;
     }
     const socketPath = this.getSocketPath();
-    return fs2.existsSync(socketPath);
+    return fs3.existsSync(socketPath);
   }
   /**
    * Verify connection by sending a ping command
@@ -18951,7 +19072,7 @@ var SocketManager = class _SocketManager {
     return message.includes("econnrefused") || message.includes("econnreset") || message.includes("epipe") || message.includes("connection closed") || message.includes("starting up");
   }
   sleep(ms) {
-    return new Promise((resolve2) => setTimeout(resolve2, ms));
+    return new Promise((resolve3) => setTimeout(resolve3, ms));
   }
   /**
    * Parse TAURI_MCP_TCP env value into host + port.
@@ -18977,7 +19098,7 @@ var SocketManager = class _SocketManager {
   async sendCommandOnce(method, params = {}) {
     const tcpEnv = process.env.TAURI_MCP_TCP;
     const connectionTarget = tcpEnv ? _SocketManager.parseTcpEnv(tcpEnv) : this.getSocketPath();
-    return new Promise((resolve2, reject) => {
+    return new Promise((resolve3, reject) => {
       let settled = false;
       const client = net2.createConnection(connectionTarget, () => {
         const request = {
@@ -19004,7 +19125,7 @@ var SocketManager = class _SocketManager {
           if (response.error) {
             reject(new Error(response.error.message));
           } else {
-            resolve2(response.result);
+            resolve3(response.result);
           }
         } catch (e) {
         }
@@ -19100,7 +19221,7 @@ ${result.snapshot}`;
     const windowInfo = await this.sendCommand("get_window_id", params);
     const windowId = windowInfo.window_id;
     const devtoolsWasOpen = windowInfo.devtools_was_open;
-    const tmpFile = path2.join(os.tmpdir(), `tauri-mcp-screenshot-${process.pid}-${crypto.randomUUID()}.png`);
+    const tmpFile = path3.join(os.tmpdir(), `tauri-mcp-screenshot-${process.pid}-${crypto.randomUUID()}.png`);
     try {
       await execFileAsync("screencapture", [
         `-l${windowId}`,
@@ -19108,7 +19229,7 @@ ${result.snapshot}`;
         "-o",
         tmpFile
       ]);
-      const imageBuffer = fs2.readFileSync(tmpFile);
+      const imageBuffer = fs3.readFileSync(tmpFile);
       const base64Data = imageBuffer.toString("base64");
       let width = 0;
       let height = 0;
@@ -19130,7 +19251,7 @@ ${result.snapshot}`;
         }
       }
       try {
-        fs2.unlinkSync(tmpFile);
+        fs3.unlinkSync(tmpFile);
       } catch {
       }
     }
@@ -19323,7 +19444,7 @@ function createToolHandlers(tauriManager, socketManager) {
       const config2 = tauriManager.getAppConfig();
       const pid = tauriManager.getProcessPid();
       const launchedAt = tauriManager.getLaunchedAt();
-      const projectRoot2 = tauriManager.getProjectRoot();
+      const projectRoot = tauriManager.getProjectRoot();
       const result = {
         status,
         app: config2 ? {
@@ -19333,7 +19454,7 @@ function createToolHandlers(tauriManager, socketManager) {
         } : null,
         ...pid != null && { pid },
         ...launchedAt != null && { launchedAt },
-        projectRoot: projectRoot2
+        projectRoot
       };
       if (status === "running" && args.probe_bridge) {
         try {
@@ -19612,7 +19733,7 @@ var McpServer = class {
   tauriManager;
   socketManager;
   toolHandlers;
-  constructor(projectRoot2) {
+  constructor(projectRoot) {
     this.server = new Server(
       {
         name: "tauri-mcp",
@@ -19624,8 +19745,8 @@ var McpServer = class {
         }
       }
     );
-    this.tauriManager = new TauriManager(projectRoot2);
-    this.socketManager = new SocketManager(projectRoot2);
+    this.tauriManager = new TauriManager(projectRoot);
+    this.socketManager = new SocketManager(projectRoot);
     this.socketManager.setSocketPathProvider(() => this.tauriManager.getSocketPath());
     this.toolHandlers = createToolHandlers(this.tauriManager, this.socketManager);
     this.setupHandlers();
@@ -19717,14 +19838,18 @@ var McpServer = class {
 
 // src/index.ts
 if (!process.env.TAURI_MCP_WINDOW_PREFIX) {
-  const dirName = path3.basename(process.cwd());
+  const dirName = path4.basename(process.cwd());
   if (dirName) {
     process.env.TAURI_MCP_WINDOW_PREFIX = dirName;
     console.error(`[tauri-mcp] Auto-detected window prefix: ${dirName}`);
   }
 }
-var projectRoot = process.env.TAURI_APP_DIR || process.env.TAURI_PROJECT_ROOT || process.cwd();
-var server = new McpServer(projectRoot);
+var resolution = resolveProjectRoot();
+for (const diagnostic of resolution.diagnostics) {
+  console.error(`[tauri-mcp] ${diagnostic}`);
+}
+console.error(`[tauri-mcp] Project root: ${resolution.projectRoot} (from ${resolution.source})`);
+var server = new McpServer(resolution.projectRoot);
 var isShuttingDown = false;
 async function shutdown(reason) {
   if (isShuttingDown) return;
